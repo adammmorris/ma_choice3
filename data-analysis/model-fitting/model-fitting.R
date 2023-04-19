@@ -7,9 +7,9 @@
 #groundhog.library(pkg.names, '2023-03-11')
 #lapply(pkg.names.modelfitting, require, character.only = TRUE)
 
-if (!require(pacman)) {
+if (!require('pacman')) {
   install.packages('pacman')
-  require(pacman)
+  require('pacman')
 }
 
 p_load(rstan, bridgesampling, iterpc, foreach, doParallel, matricks, loo)
