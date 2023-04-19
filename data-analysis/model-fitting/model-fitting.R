@@ -1,11 +1,18 @@
 # needs: numAtts, numTrials
 
 # setup -------------------------------------------------------------------
-require(groundhog)
+#require(groundhog)
 
-pkg.names.modelfitting = c('rstan', 'bridgesampling', 'iterpc', 'foreach', 'doParallel', 'matricks','loo')
+#pkg.names.modelfitting = c('rstan', 'bridgesampling', 'iterpc', 'foreach', 'doParallel', 'matricks','loo')
 #groundhog.library(pkg.names, '2023-03-11')
-lapply(pkg.names.modelfitting, require, character.only = TRUE)
+#lapply(pkg.names.modelfitting, require, character.only = TRUE)
+
+if (!require(pacman)) {
+  install.packages('pacman')
+  require(pacman)
+}
+
+p_load(rstan, bridgesampling, iterpc, foreach, doParallel, matricks, loo)
 
 options(mc.cores = 1)
 rstan_options(auto_write = TRUE)

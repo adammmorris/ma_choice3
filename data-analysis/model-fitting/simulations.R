@@ -1,6 +1,19 @@
+load.package = function(pkg.names) {
+  for (i in 1:length(pkg.names)) {
+    if (!require(pkg.names[i])) {
+      install.packages(pkg.names[i])
+      require(pkg.names[i])
+    }
+  }
+}
 
 # setup -------------------------------------------------------------------
-require(this.path)
+if (!require(pacman)) {
+  install.packages('pacman')
+  require(pacman)
+}
+
+p_load(this.path)
 
 numAtts = 9
 numTrials = 100
