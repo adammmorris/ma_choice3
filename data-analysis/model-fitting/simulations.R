@@ -8,9 +8,9 @@ load.package = function(pkg.names) {
 }
 
 # setup -------------------------------------------------------------------
-if (!require(pacman)) {
+if (!require('pacman')) {
   install.packages('pacman')
-  require(pacman)
+  require('pacman')
 }
 
 p_load(this.path)
