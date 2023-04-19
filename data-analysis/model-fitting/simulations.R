@@ -43,41 +43,21 @@ for (simulating_model in 1:numGeneratingModels) {
     choices_touse[[subj]] = generateChoices(agent_inv_temps[subj], agent_weights[subj,], option_diffs_touse_subj)
   }
   
-  ## FIT FULL
   stan_results_full = doFitting(stan_model_full, option_diffs_touse, choices_touse, 0, 0)
-  #stan_results_full_parsed = parseFittingResults(stan_results_full)
-  
-  ## FIT BINATT
   stan_results_binatts <- doFitting(stan_model_full, option_diffs_touse, choices_touse, 1, 0)
-  #stan_results_binatts_parsed = parseFittingResults(stan_results_binatts)
-  
-  ## FIT BINWTS
   stan_results_binwts <- doFitting(stan_model_binwts, option_diffs_touse, choices_touse, 0, 1, all_combinations_binwts)
-  #stan_results_binwts_parsed = parseFittingResults(stan_results_binwts, all_combinations_binwts)
-
-  ## FIT BINATTSWTS
   stan_results_binattswts <- doFitting(stan_model_binwts, option_diffs_touse, choices_touse, 1, 1, all_combinations_binwts)
-  #stan_results_binattswts_parsed = parseFittingResults(stan_results_binattswts, all_combinations_binwts)
-
-  ## FIT 1ATT
   stan_results_oneatt <- doFitting(stan_model_binwts, option_diffs_touse, choices_touse, 0, 1, all_combinations_singleatt)
-  #stan_results_oneatt_parsed = parseFittingResults(stan_results_oneatt, all_combinations_singleatt)
-  
-  ## FIT 1ATTBINATTS
   stan_results_oneattbinatts <- doFitting(stan_model_binwts, option_diffs_touse, choices_touse, 1, 1, all_combinations_singleatt)
-  #stan_results_oneattbinatts_parsed = parseFittingResults(stan_results_oneattbinatts, all_combinations_singleatt)
-  
+
   save(simulating_model, numSubj, numAtts,
        option_diffs_touse, choices_touse, agent_inv_temps, agent_weights,
        stan.seed, numChains, numIter,
        generateChoices, doFitting, parseFittingResults,
        all_combinations_binwts, all_combinations_singleatt,
-       stan_results_full, stan_results_full_parsed,
-       stan_results_binatts, stan_results_binatts_parsed,
-       stan_results_binwts, stan_results_binwts_parsed,
-       stan_results_binattswts, stan_results_binattswts_parsed,
-       stan_results_oneatt, stan_results_oneatt_parsed,
-       stan_results_oneattbinatts, stan_results_oneattbinatts_parsed, stan_output_path,
+       stan_results_full, stan_results_binatts, stan_results_binwts,
+       stan_results_binattswts, stan_results_oneatt, stan_results_oneattbinatts,
+       stan_output_path,
        file = paste0(stan_output_path, 'analysis_output_stan.rdata'))
 
   rm(stan_results_full, stan_results_full_parsed,
