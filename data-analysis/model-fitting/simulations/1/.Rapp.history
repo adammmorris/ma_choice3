@@ -1,0 +1,3 @@
+load("/Users/adam/Me/Psychology/Projects/ma_choice/git/data-analysis/home-fixed/stan-simulations/1/stan_results_binwts.rdata")
+load("/Users/adam/Me/Psychology/Projects/ma_choice/git/data-analysis/home-fixed/stan-simulations/1/stan_results_binattswts.rdata")
+load("/Users/adam/Me/Psychology/Projects/ma_choice/git/data-analysis/model-fitting/simulations/1/analysis_output_stan.rdata")
