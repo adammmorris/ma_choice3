@@ -12,14 +12,13 @@ if (!require('pacman')) {
   require('pacman')
 }
 
-p_load(rstan, bridgesampling, iterpc, foreach, doParallel, matricks, loo)
+p_load(rstan, bridgesampling, iterpc, matricks, loo)
 
 options(mc.cores = 1)
 rstan_options(auto_write = TRUE)
-registerDoParallel(cores = 32)
 
 stan.seed = 12345
-numChains = 2
+numChains = 1
 numIter = 2000
 
 numReturnsPerFit = 8
@@ -240,6 +239,134 @@ doFitting = function(stan_model_obj, option_diffs, choices, binary_atts, binary_
   
   return(stan_results)
 }
+
+doFitting_subj = function(stan_model_obj, option_diffs, choices, binary_atts, binary_wts, wts_combinations_list = NULL) {
+  if (binary_atts) {option_diffs = sign(option_diffs)}
+  
+  # Fit the model
+  if (length(choices) == numTrials) {
+    if (!binary_wts) {
+      stan_fit <- sampling(stan_model_obj,
+                           data = list(numChoices = numTrials,
+                                       numAtts = nrow(option_diffs),
+                                       option_diffs = option_diffs,
+                                       choices = choices),
+                           iter = numIter,
+                           chains = numChains,
+                           seed = stan.seed,
+                           refresh = 0)
+      stan_params = summary(stan_fit, probs = 0.5, pars = c('inv_temp', 'weights', 'lp__'))$summary[,1]
+      stan_lme = bridge_sampler(stan_fit, silent = T)$logml
+      stan_diagnostics = get_all_diagnostics(stan_fit)
+      stan_loo = loo(stan_fit)
+      best_wts_ind = NA
+      good_inds_to_test = NA
+      stan_lmes_all = NA
+      stan_lp_bad = NA
+      stan_lme_bad = NA
+    } else {
+      if (length(wts_combinations_list) > 18) {
+        untemped_lpdfs = sapply(wts_combinations_list, function(x) compute_lpdf(1, x, option_diffs, choices))
+        good_inds_to_test = which(untemped_lpdfs %in% tail(sort(untemped_lpdfs), numTopInds))
+        bad_inds_to_test = sample(which(!(untemped_lpdfs %in% tail(sort(untemped_lpdfs), numTopInds))), 10)
+      } else {
+        good_inds_to_test = 1:length(wts_combinations_list)
+        bad_inds_to_test = NA
+      }
+      
+      stan_fits_all = vector('list', length(good_inds_to_test))
+      stan_lmes_all = rep(NA, length = length(good_inds_to_test))
+      
+      best_lp = -Inf
+      best_wts_ind = NA
+      for (i in 1:length(good_inds_to_test)) {
+        weights = wts_combinations_list[[good_inds_to_test[i]]]
+        utilities_untemped = as.vector(weights %*% option_diffs)
+        utilities_num_untemped = utilities_untemped
+        utilities_num_untemped[choices == 0] = 0
+        stan_fits_all[[i]] <- sampling(stan_model_obj,
+                                       data = list(numChoices = numTrials,
+                                                   utilities_untemped = utilities_untemped,
+                                                   utilities_num_untemped = utilities_num_untemped),
+                                       iter = numIter,
+                                       chains = numChains,
+                                       seed = stan.seed,
+                                       refresh = 0)
+        stan_lmes_all[i] = bridge_sampler(stan_fits_all[[i]], silent = T)$logml
+        
+        cur_lp = summary(stan_fits_all[[i]], probs = 0.5, pars=c('lp__'))$summary[1]
+        if (cur_lp > best_lp) {
+          best_wts_ind = i
+          best_lp = cur_lp
+        }
+      }
+      
+      # if we're in binwts, get random sample of bad ones to approximate default lme
+      if (any(!is.na(bad_inds_to_test))) {
+        stan_lps_bad_all = rep(NA, length = length(bad_inds_to_test))
+        stan_lmes_bad_all = rep(NA, length = length(bad_inds_to_test))
+        for (i in 1:length(bad_inds_to_test)) {
+          weights = wts_combinations_list[[bad_inds_to_test[i]]]
+          utilities_untemped = as.vector(weights %*% option_diffs)
+          utilities_num_untemped = utilities_untemped
+          utilities_num_untemped[choices == 0] = 0
+          stan_fit_bad_cur <- sampling(stan_model_obj,
+                                       data = list(numChoices = numTrials,
+                                                   utilities_untemped = utilities_untemped,
+                                                   utilities_num_untemped = utilities_num_untemped),
+                                       iter = numIter,
+                                       chains = numChains,
+                                       seed = stan.seed,
+                                       refresh = 0)
+          stan_lps_bad_all[i] = summary(stan_fit_bad_cur, probs = 0.5, pars=c('lp__'))$summary[1]
+          stan_lmes_bad_all[i] = bridge_sampler(stan_fit_bad_cur, silent = T)$logml
+        }
+        stan_lp_bad = mean(stan_lps_bad_all)
+        stan_lme_bad = mean(stan_lmes_bad_all)
+      } else {
+        stan_lp_bad = NA
+        stan_lme_bad = NA
+      }
+      
+      # for best one, save more stuff
+      stan_fit = stan_fits_all[[best_wts_ind]]
+      stan_lme = log(mean(exp(
+        c(stan_lmes_all,
+          rep(stan_lme_bad, length(wts_combinations_list) - length(stan_lmes_all))
+          )
+        )))
+      stan_params_temp = summary(stan_fit, probs = 0.5, pars=c('inv_temp', 'lp__'))$summary[,1]
+      stan_params = c(stan_params_temp['inv_temp'], wts_combinations_list[[best_wts_ind]], stan_params_temp['lp__'])
+      stan_diagnostics = get_all_diagnostics(stan_fit)
+      stan_loo = loo(stan_fit)
+      rm(stan_fits_all)
+    }
+    
+    stan_results = list(stan_fit, stan_params, stan_lme, stan_diagnostics, stan_loo, best_wts_ind, good_inds_to_test, stan_lmes_all, stan_lp_bad, stan_lme_bad)
+    rm(stan_lmes_all)
+  } else {
+    stan_results = list(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+  }
+   
+  return(stan_results)
+}
+
+fitAllModels = function(option_diffs, choices) {
+  fitting_results = vector('list', 6)
+  
+  #fitting_results[[1]] = doFitting_subj(stan_model_full, option_diffs, choices, 0, 0)
+  #fitting_results[[2]] <- doFitting_subj(stan_model_full, option_diffs, choices, 1, 0)
+  fitting_results[[3]] <- doFitting_subj(stan_model_binwts, option_diffs, choices, 0, 1, all_combinations_binwts)
+  gc()
+  #fitting_results[[4]] <- doFitting_subj(stan_model_binwts, option_diffs, choices, 1, 1, all_combinations_binwts)
+  #gc()
+  #fitting_results[[5]] <- doFitting_subj(stan_model_binwts, option_diffs, choices, 0, 1, all_combinations_singleatt)
+  #fitting_results[[6]] <- doFitting_subj(stan_model_binwts, option_diffs, choices, 1, 1, all_combinations_singleatt)
+  #gc()
+  return(fitting_results)
+}
+
+
 
 # returns list w/: best-fitting params, LMEs
 parseFittingResults = function(stan_results, wts_combinations_list = NULL) {
