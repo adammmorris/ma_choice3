@@ -6,7 +6,7 @@ if (!require('pacman')) {
   require('pacman')
 }
 
-p_load(this.path)
+p_load(this.path, parallel)
 
 numAtts = 9
 numTrials = 100
@@ -15,6 +15,7 @@ source(paste0(here(),'/model-fitting.R')) # get right filepath for this
 load(paste0(here(),'/option_diffs.rdata')) # get right filepath for this
 
 numSubj = 32
+numCores = 32
 
 models_to_simulate = 1
 numGeneratingModels = length(models_to_simulate)
@@ -49,7 +50,7 @@ for (simulating_model in 1:numGeneratingModels) {
   fitting_results = mclapply(
     1:numSubj,
     function(subj) {return(fitAllModels(option_diffs_touse[[subj]], choices_touse[[subj]]))},
-    mc.cores = 32
+    mc.cores = numCores
   )
 
   save(simulating_model, numSubj, numAtts,
