@@ -49,7 +49,7 @@ for (simulating_model in 1:numGeneratingModels) {
   fitting_results = mclapply(
     1:numSubj,
     function(subj) {return(fitAllModels(option_diffs_touse[[subj]], choices_touse[[subj]]))},
-    mc.cores = detectCores()
+    mc.cores = 32
   )
 
   save(simulating_model, numSubj, numAtts,
