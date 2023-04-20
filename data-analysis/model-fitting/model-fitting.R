@@ -16,7 +16,7 @@ p_load(rstan, bridgesampling, iterpc, foreach, doParallel, matricks, loo)
 
 options(mc.cores = 1)
 rstan_options(auto_write = TRUE)
-registerDoParallel(cores = 3)
+registerDoParallel(cores = 32)
 
 stan.seed = 12345
 numChains = 2
