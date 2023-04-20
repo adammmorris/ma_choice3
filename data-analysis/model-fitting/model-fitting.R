@@ -18,7 +18,7 @@ options(mc.cores = 1)
 rstan_options(auto_write = TRUE)
 
 stan.seed = 12345
-numChains = 1
+numChains = 4
 numIter = 2000
 
 numReturnsPerFit = 8
@@ -354,15 +354,13 @@ doFitting_subj = function(stan_model_obj, option_diffs, choices, binary_atts, bi
 fitAllModels = function(option_diffs, choices) {
   fitting_results = vector('list', 6)
   
-  #fitting_results[[1]] = doFitting_subj(stan_model_full, option_diffs, choices, 0, 0)
-  #fitting_results[[2]] <- doFitting_subj(stan_model_full, option_diffs, choices, 1, 0)
+  fitting_results[[1]] = doFitting_subj(stan_model_full, option_diffs, choices, 0, 0)
+  fitting_results[[2]] <- doFitting_subj(stan_model_full, option_diffs, choices, 1, 0)
   fitting_results[[3]] <- doFitting_subj(stan_model_binwts, option_diffs, choices, 0, 1, all_combinations_binwts)
+  fitting_results[[4]] <- doFitting_subj(stan_model_binwts, option_diffs, choices, 1, 1, all_combinations_binwts)
+  fitting_results[[5]] <- doFitting_subj(stan_model_binwts, option_diffs, choices, 0, 1, all_combinations_singleatt)
+  fitting_results[[6]] <- doFitting_subj(stan_model_binwts, option_diffs, choices, 1, 1, all_combinations_singleatt)
   gc()
-  #fitting_results[[4]] <- doFitting_subj(stan_model_binwts, option_diffs, choices, 1, 1, all_combinations_binwts)
-  #gc()
-  #fitting_results[[5]] <- doFitting_subj(stan_model_binwts, option_diffs, choices, 0, 1, all_combinations_singleatt)
-  #fitting_results[[6]] <- doFitting_subj(stan_model_binwts, option_diffs, choices, 1, 1, all_combinations_singleatt)
-  #gc()
   return(fitting_results)
 }
 

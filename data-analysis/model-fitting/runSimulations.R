@@ -14,7 +14,7 @@ numTrials = 100
 source(paste0(here(),'/model-fitting.R')) # get right filepath for this
 load(paste0(here(),'/option_diffs.rdata')) # get right filepath for this
 
-numSubj = 32
+numSubj = 50
 numCores = 32
 
 models_to_simulate = 1
