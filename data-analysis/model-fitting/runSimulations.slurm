@@ -9,3 +9,5 @@
 #SBATCH --mail-type=fail         # send email if job fails
 #SBATCH --mail-type=end          # send email when job ends
 #SBATCH --mail-user=am9578@princeton.edu
+
+Rscript runSimulations.R
