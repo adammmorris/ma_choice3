@@ -1,0 +1,14 @@
+Loading required package: pacman
+
+Attaching package: ‘dplyr’
+
+The following objects are masked from ‘package:stats’:
+
+    filter, lag
+
+The following objects are masked from ‘package:base’:
+
+    intersect, setdiff, setequal, union
+
+slurmstepd: error: *** JOB 1750324 ON adroit-13 CANCELLED AT 2023-04-20T12:13:05 DUE TO TIME LIMIT ***
+slurmstepd: error: Detected 2 oom-kill event(s) in StepId=1750324.batch. Some of your processes may have been killed by the cgroup out-of-memory handler.

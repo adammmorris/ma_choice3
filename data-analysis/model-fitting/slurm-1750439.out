@@ -1,0 +1,4 @@
+Loading required package: pacman
+Error in mclapply(1:numSubj, function(subj) { : 
+  could not find function "mclapply"
+Execution halted
