@@ -15,7 +15,7 @@ load(paste0(here(),'/option_diffs.rdata')) # get right filepath for this
 numSubj = 1000
 numCores = 32
 
-models_to_simulate = 1
+models_to_simulate = 2:6
 
 stan_model_full <- stan_model(paste0(here(),"/stan-program.stan"))
 stan_model_binwts <- stan_model(paste0(here(),"/stan-program-binwts.stan"))
