@@ -21,7 +21,7 @@ stan.seed = 12345
 numChains = 4
 numIter = 2000
 
-numTopInds = 200
+numTopInds = 1000
 numBadInds = 100
 
 # get all combinations, for binwts & single att
@@ -150,7 +150,7 @@ fitSubj = function(stan_model_obj, option_diffs, choices, binary_atts, binary_wt
                            refresh = 0)
       best_params = summary(stan_fit, probs = 0.5, pars = c('inv_temp', 'weights', 'lp__'))$summary[,1]
       lme = bridge_sampler(stan_fit, silent = T)$logml
-      stan_samples = extract(stan_fit, pars = c('inv_temp', 'weights', 'lp__'))
+      stan_samples = NULL#extract(stan_fit, pars = c('inv_temp', 'weights', 'lp__'))
       stan_diagnostics = get_all_diagnostics(stan_fit)
       stan_loo = loo(stan_fit)
       best_wts_ind = NA
@@ -238,11 +238,12 @@ fitSubj = function(stan_model_obj, option_diffs, choices, binary_atts, binary_wt
       stan_loo = loo(stan_fit)
     }
     
-    stan_fit@sim$samples = NULL # for space... too big to store
+    # for space... too big to store
+    #stan_fit@sim$samples = NULL
     
-    stan_results = list(stan_fit, best_params, lme, stan_samples, stan_diagnostics, stan_loo, best_wts_ind, good_inds_to_test, lmes_goodinds, lmes_badinds, lps_badinds)
+    stan_results = list(best_params, lme)#, stan_fit, stan_samples, stan_diagnostics, stan_loo, best_wts_ind, good_inds_to_test, lmes_goodinds, lmes_badinds, lps_badinds)
   } else {
-    stan_results = list(NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    stan_results = list(NULL, NULL)#, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
   }
   
   return(stan_results)
