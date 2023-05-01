@@ -28,7 +28,7 @@ stan_model_full <- stan_model(paste0(here(),"/model-fitting/stan-program.stan"))
 stan_model_binwts <- stan_model(paste0(here(),"/model-fitting/stan-program-binwts.stan"))
 
 # Do model-fitting --------------------------------------------------------
-numCores = 32
+numCores = 16
 
 option_diffs_allsubj = vector(mode = 'list', numSubj)
 for (subj in 1:numSubj) {
