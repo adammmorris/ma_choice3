@@ -1,0 +1,7 @@
+Loading required package: pacman
+Error in gzfile(file, "wb") : cannot open the connection
+Calls: save -> gzfile
+In addition: Warning message:
+In gzfile(file, "wb") :
+  cannot open compressed file '/home/am9578/projects/ma_choice/ma_choice3/data-analysis/movie/modeling-output/modeling_output_1.rdata', probable reason 'No such file or directory'
+Execution halted
