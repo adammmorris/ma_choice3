@@ -5,7 +5,7 @@ if (!require('pacman')) {
   require('pacman')
 }
 
-p_load(this.path, parallel, matrixStats)
+p_load(this.path, parallel, matrixStats, dplyr)
 
 
 # Set version -------------------------------------------------------------
@@ -18,6 +18,8 @@ version = versions[3]
 filepath = paste0(here(), '/', version, '/')
 
 load(paste0(filepath,'analysis_output.rdata'))
+
+filepath = paste0(here(), '/', version, '/') # have to redo it b/c of conflict in loaded file
 
 numSubj = length(subjlist)
 numAtts = length(atts)
