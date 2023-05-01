@@ -1,50 +1,43 @@
 # analyze results ---------------------------------------------------------
+require(this.path)
+setwd(here())
+
 numGeneratingModels = 6
+numFittingModels = 6
 
 ### import data
-fits_parsed = vector('list', numGeneratingModels)
-lmes_parsed = vector('list', numGeneratingModels)
+lmes = vector('list', numGeneratingModels)
 true_temps = vector('list', numGeneratingModels)
 true_weights = vector('list', numGeneratingModels)
 best_fit_temps = vector('list', numGeneratingModels)
 best_fit_weights = vector('list', numGeneratingModels)
-for (i in 1:numGeneratingModels) {
-  load(paste0('simulations/', i, '/analysis_output_stan.rdata'))
+
+for (generating_model in 1:numGeneratingModels) {
+  load(paste0('simulations/', generating_model, '/analysis_output_stan.rdata'))
   
-  fits_parsed[[i]] = list(stan_results_full_parsed[[1]],
-                          stan_results_binatts_parsed[[1]],
-                          stan_results_binwts_parsed[[1]],
-                          stan_results_binattswts_parsed[[1]],
-                          stan_results_oneatt_parsed[[1]],
-                          stan_results_oneattbinatts_parsed[[1]])
-  lmes_parsed[[i]] = list(stan_results_full_parsed[[2]],
-                          stan_results_binatts_parsed[[2]],
-                          stan_results_binwts_parsed[[2]],
-                          stan_results_binattswts_parsed[[2]],
-                          stan_results_oneatt_parsed[[2]],
-                          stan_results_oneattbinatts_parsed[[2]])
+  # get true parameters
+  true_temps[[generating_model]] = agent_inv_temps
+  true_weights[[generating_model]] = agent_weights
   
-  true_temps[[i]] = agent_inv_temps
-  true_weights[[i]] = agent_weights
-  
-  # get best-fitting params from appropriate model
-  best_fit_temps[[i]] = numeric(numSubj)
-  best_fit_weights[[i]] = matrix(NA, nrow = numSubj, ncol = numAtts)
+  # get best-fitting params
+  best_fit_temps[[generating_model]] = rep(NA, numSubj)
+  best_fit_weights[[generating_model]] = matrix(NA, nrow = numSubj, ncol = numAtts)
+  lmes[[generating_model]] = matrix(NA, nrow = numSubj, ncol = numGeneratingModels)
   for (subj in 1:numSubj) {
-    fits_parsed_subj = fits_parsed[[i]][[i]][[subj]]
-    if (!is.null(fits_parsed_subj)) {
-      best_fit_params = fits_parsed_subj
-      best_fit_temps[[i]][subj] = best_fit_params[1]
-      best_fit_weights[[i]][subj,] = best_fit_params[2:(numAtts+1)] 
-    } else {
-      best_fit_temps[[i]][subj] = NA
+    fit_subj = fitting_results[[subj]][[generating_model]] # from corresponding fitted model
+    if (!is.null(fit_subj[[1]])) {
+      best_fit_params = fit_subj[[1]]
+      best_fit_temps[[generating_model]][subj] = best_fit_params[1]
+      best_fit_weights[[generating_model]][subj,] = best_fit_params[2:(numAtts+1)] 
+      
+      for (fitted_model in 1:numFittingModels) {
+        lmes[[generating_model]][subj,fitted_model] = fitting_results[[subj]][[fitted_model]][[2]]
+      }
     }
   }
 }
 
 ### check model recoverability
-numFittingModels = 6
-
 bayes_matrix <- matrix(0, nrow = numGeneratingModels, ncol = numFittingModels)
 
 numQuestions <- 3
@@ -55,13 +48,10 @@ q_families <- list(
   list(c(1,3,5), c(2,4,6))
 )
 
-for (data_generating_model in 1:numGeneratingModels) {
+for (generating_model in 1:numGeneratingModels) {
   best_model <- numeric(numSubj)
   for (agent in 1:numSubj) {
-    cur_lmes <- numeric(numFittingModels)
-    for (fitted_model in 1:numFittingModels) {
-      cur_lmes[fitted_model] <- lmes_parsed[[data_generating_model]][[fitted_model]][agent]
-    }
+    cur_lmes <- lmes[[generating_model]][agent,]
     if (any(!is.na(cur_lmes))) {
       best_model[agent] <- which.max(cur_lmes)
     } else {
@@ -71,12 +61,12 @@ for (data_generating_model in 1:numGeneratingModels) {
     cur_mes <- exp(cur_lmes)
     
     for (question in 1:numQuestions) {
-      q_indiv[question, data_generating_model, agent] <- mean(cur_mes[q_families[[question]][[1]]]) / (mean(cur_mes[q_families[[question]][[1]]]) + mean(cur_mes[q_families[[question]][[2]]]))
+      q_indiv[question, generating_model, agent] <- mean(cur_mes[q_families[[question]][[1]]]) / (mean(cur_mes[q_families[[question]][[1]]]) + mean(cur_mes[q_families[[question]][[2]]]))
     }
   }
   
   for (fitted_model in 1:numFittingModels) {
-    bayes_matrix[data_generating_model, fitted_model] <- sum(best_model == fitted_model, na.rm=T)
+    bayes_matrix[generating_model, fitted_model] <- sum(best_model == fitted_model, na.rm=T)
   }
 }
 

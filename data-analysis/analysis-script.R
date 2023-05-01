@@ -1,6 +1,11 @@
 ### This code has been tested in R version 4.2.2.
 
 # Setup -------------------------------------------------------------------
+# if (!require('pacman')) {
+#   install.packages('pacman')
+#   require('pacman')
+# }
+
 require(groundhog)
 
 pkg.names = c('ggplot2', 'lme4', 'lmerTest', 'tidyverse', 'jsonlite', 'combinat', 'effectsize', 'RColorBrewer', 'scales')
@@ -80,9 +85,26 @@ as.string = function(x) {
 }
 dodge <- position_dodge(width=0.9)
 
+# for loading model fitting results
+combine_lists <- function(directory) {
+  # Get a list of .RData files in the directory
+  files <- list.files(directory, pattern="\\.rdata$", full.names=TRUE)
+  
+  # Create an empty list to store the data
+  all_data <- list()
+  
+  # Load the data from each file
+  for (i in 1:length(files)) {
+    load(paste0(directory, 'modeling_output_', i, '.rdata'))
+    all_data <- c(all_data, fitting_results_split_cur)
+  }
+  
+  return(all_data)
+}
+
+
 # Only works in RStudio -- otherwise you have to set the path manually
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-
 
 # Set version -------------------------------------------------------------
 
@@ -92,13 +114,14 @@ setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 # the decider analysis (in the "Compare deciders to observers" section below), where we
 # do the critical comparisons between versions.
 versions = c('home-fixed', 'home-random', 'movie', 'home-fixed-observers', 'movie-observers')
-version = versions[1]
+version = versions[3]
 task_variant = ifelse(version %in% c('home-fixed', 'home-random', 'home-fixed-observers'),
                       'home',
                       'movie')
 participant_type = ifelse(version %in% c('home-fixed', 'home-random', 'movie'),
                           'decider',
                           'observer')
+has_observers = version %in% c('home-fixed', 'movie')
 filepath = paste0(version, '/')
 filepath_data = paste0(filepath, 'data/')
 if (participant_type == 'observer') {
@@ -108,9 +131,9 @@ if (participant_type == 'observer') {
 }
 
 # Load data ---------------------------------------------------------------
-q1.levels =c('One', 'Multiple')
-q2.levels =c('Binary', 'Graded')
-q3.levels =c('Binary', 'Graded')
+# h1.levels =c('One', 'Multiple')
+# h2.levels =c('Binary', 'Graded')
+# h3.levels =c('Binary', 'Graded')
 numTrials = 100
 
 # df.demo (short for "demographics") has all the subject-level information, i.e. one row per subject
@@ -259,38 +282,36 @@ if (file.exists(paste0(filepath_data,'ant.csv'))) {
 
 ### MODELS
 models = c('Full', 'BinAtts', 'BinWts', 'BinWtsAtts', '1Att', '1AttBinAtts')
+model.prob.names = paste0('model.', models, '.prob')
 models.one.att = c('Multiple', 'Multiple', 'Multiple', 'Multiple', 'One', 'One')
 models.bin.wts = c('Graded', 'Graded', 'Binary', 'Binary', NA, NA)
 models.bin.atts = c('Graded', 'Binary', 'Graded', 'Binary', 'Graded', 'Binary')
 models.order = c('Full', 'BinAtts', 'BinWts', 'BinWtsAtts', '1Att', '1AttBinAtts')
 df.demo = df.demo %>%
-  mutate(reported.q1 = lex_real / 100,
-         reported.q2 = binwts_real / 100,
-         reported.q3 = binatts_real / 100,
-         reported.q1.dichotomized = factor(reported.q1 > 0.5, c(F,T), q1.levels),
-         reported.q2.dichotomized = factor(reported.q2 > 0.5, c(F,T), q2.levels),
-         reported.q3.dichotomized = factor(reported.q3 > 0.5, c(F,T), q3.levels),
-         reported.q1.dichotomized2 = factor(reported.q1 < 0.5, c(F,T), c('No', 'Yes')),
-         reported.q2.dichotomized2 = factor(reported.q2 < 0.5, c(F,T), c('No', 'Yes')),
-         reported.q3.dichotomized2 = factor(reported.q3 < 0.5, c(F,T), c('No', 'Yes')),
-         reported.model.num = ifelse(reported.q1.dichotomized == 'One',
-                                     ifelse(reported.q3.dichotomized == 'Binary', 6, 5),
-                                     ifelse(reported.q2.dichotomized == 'Binary',
-                                            ifelse(reported.q3.dichotomized == 'Binary', 4, 3),
-                                            ifelse(reported.q3.dichotomized == 'Binary', 2, 1))),
+  mutate(reported.h1 = 1 - lex_real / 100, # question was reversed in actual task
+         reported.h2 = 1 - binwts_real / 100,
+         reported.h3 = 1 - binatts_real / 100,
+         reported.h1.dichotomized = reported.h1 > 0.5, # did they report using each heuristic
+         reported.h2.dichotomized = reported.h2 > 0.5,
+         reported.h3.dichotomized = reported.h3 > 0.5,
+         reported.model.num = ifelse(reported.h1.dichotomized,
+                                     ifelse(reported.h3.dichotomized, 6, 5),
+                                     ifelse(reported.h2.dichotomized,
+                                            ifelse(reported.h3.dichotomized, 4, 3),
+                                            ifelse(reported.h3.dichotomized, 2, 1))),
          reported.model = models[reported.model.num],
          reported.model.fac = factor(reported.model, models.order, models.order),
-         norm.q1 = lex_norm / 100,
-         norm.q2 = binwts_norm / 100,
-         norm.q3 = binatts_norm / 100,
-         norm.q1.dichotomized = factor(norm.q1 > 0.5, c(F,T), q1.levels),
-         norm.q2.dichotomized = factor(norm.q2 > 0.5, c(F,T), q2.levels),
-         norm.q3.dichotomized = factor(norm.q3 > 0.5, c(F,T), q3.levels),
-         norm.model.num = ifelse(norm.q1.dichotomized == 'One',
-                                 ifelse(norm.q3.dichotomized == 'Binary', 6, 5),
-                                 ifelse(norm.q2.dichotomized == 'Binary',
-                                        ifelse(norm.q3.dichotomized == 'Binary', 4, 3),
-                                        ifelse(norm.q3.dichotomized == 'Binary', 2, 1))),
+         norm.h1 = 1 - lex_norm / 100,
+         norm.h2 = 1 - binwts_norm / 100,
+         norm.h3 = 1 - binatts_norm / 100,
+         norm.h1.dichotomized = norm.h1 > 0.5,
+         norm.h2.dichotomized = norm.h2 > 0.5,
+         norm.h3.dichotomized = norm.h3 > 0.5,
+         norm.model.num = ifelse(norm.h1.dichotomized,
+                                 ifelse(norm.h3.dichotomized, 6, 5),
+                                 ifelse(norm.h2.dichotomized,
+                                        ifelse(norm.h3.dichotomized, 4, 3),
+                                        ifelse(norm.h3.dichotomized, 2, 1))),
          norm.model = models[norm.model.num],
          norm.model.fac = factor(norm.model, models.order, models.order))
 
@@ -461,6 +482,7 @@ if (participant_type == 'decider') {
   atts = atts$V1
 }
 
+numAtts = length(atts)
 att.nums = 1:length(atts)
 att.nums.str = as.character(att.nums)
 
@@ -525,11 +547,10 @@ for (i in 1:nrow(df.s1)) {
 for (i in 1:length(atts)) {
   cur.att.opt1 = atts.opt1[i]
   cur.att.opt2 = atts.opt2[i]
-  cur.scale = ifelse(task_variant == 'movie',
-                     movie_scale,
-                     unique(df.attributes$scale[df.attributes$attribute == atts[i]]))
   
-  if (is.na(cur.scale) || cur.scale == "") {
+  cur.scale = if(task_variant == 'movie') movie_scale else unique(df.attributes$scale[df.attributes$attribute == atts[i]])
+  
+  if (any(is.na(cur.scale)) || any(cur.scale == "")) {
       if (task_variant == 'movie') {
       df.s1[,cur.att.opt1] = as.numeric(sub('\\%.*', '', df.s1[,cur.att.opt1]))
       df.s1[,cur.att.opt2] = as.numeric(sub('\\%.*', '', df.s1[,cur.att.opt2]))
@@ -638,18 +659,18 @@ for (i in 1:nrow(df.attributes)) {
     df.attributes$linear[i] = NA
   }
   
-  df.attributes$reported.q1[i] = df.demo$reported.q1[rows.demo] 
-  df.attributes$reported.q2[i] = df.demo$reported.q2[rows.demo]  
-  df.attributes$reported.q3[i] = df.demo$reported.q3[rows.demo] 
-  df.attributes$reported.q1.dichotomized[i] = df.demo$reported.q1.dichotomized[rows.demo] 
-  df.attributes$reported.q2.dichotomized[i] = df.demo$reported.q2.dichotomized[rows.demo]  
-  df.attributes$reported.q3.dichotomized[i] = df.demo$reported.q3.dichotomized[rows.demo] 
+  df.attributes$reported.h1[i] = df.demo$reported.h1[rows.demo] 
+  df.attributes$reported.h2[i] = df.demo$reported.h2[rows.demo]  
+  df.attributes$reported.h3[i] = df.demo$reported.h3[rows.demo] 
+  df.attributes$reported.h1.dichotomized[i] = df.demo$reported.h1.dichotomized[rows.demo] 
+  df.attributes$reported.h2.dichotomized[i] = df.demo$reported.h2.dichotomized[rows.demo]  
+  df.attributes$reported.h3.dichotomized[i] = df.demo$reported.h3.dichotomized[rows.demo] 
   df.attributes$reported.model[i] = df.demo$reported.model[rows.demo]
   df.attributes$reported.model.num[i] = df.demo$reported.model.num[rows.demo]
   df.attributes$reported.model.fac[i] = df.demo$reported.model.fac[rows.demo]
-  df.attributes$reported.weight.reported[i] = ifelse(df.demo$reported.q1.dichotomized[rows.demo] == 'One',
+  df.attributes$reported.weight.reported[i] = ifelse(df.demo$reported.h1.dichotomized[rows.demo] == 'One',
                                                      df.attributes$reported.weight.single[i],
-                                                     ifelse(df.demo$reported.q2.dichotomized[rows.demo] == 'Binary',
+                                                     ifelse(df.demo$reported.h2.dichotomized[rows.demo] == 'Binary',
                                                             df.attributes$reported.weight.binary[i],
                                                             df.attributes$reported.weight.graded[i]))
 }
@@ -662,102 +683,20 @@ df.attributes = df.attributes %>%
 
 ## Save some data that we need to analyze the observer data
 # (this gets saved to the observers folder)
-if (participant_type == 'decider') {
+if (has_observers) {
   write.table(df.demo %>% select(subject, subject.num), paste0(filepath_observer, 'observer_mapping.csv'), row.names = F, col.names = F, sep = ",")
   write.table(atts, paste0(filepath_observer, 'att_order.csv'), row.names = F, col.names = F, sep = ",")
 }
 
-# Get data for modeling ---------------------------------------------------
-# the modeling is done in MATLAB
-# this section does not need to be run when you're analyzing the scripts now;
-# it just outputs the data to matlab for modeling
-filepath_modelinput = paste0(filepath, 'modeling-input')
-
-write.table(df.s1 %>% dplyr::select(subject.num, all_of(atts.opt1)), paste0(filepath_modelinput, 'modeling_opts1.csv'), row.names = F, col.names = F, sep = ",")
-write.table(df.s1 %>% dplyr::select(subject.num, all_of(atts.opt2)), paste0(filepath_modelinput, 'modeling_opts2.csv'), row.names = F, col.names = F, sep = ",")
-write.table(df.s1 %>% dplyr::select(subject.num, choice) %>% mutate(choice = choice + 1), paste0(filepath_modelinput, 'modeling_choice.csv'), row.names = F, col.names = F, sep = ",")
-write.table(df.avail.atts, paste0(filepath_modelinput, 'modeling_avail_atts.csv'), row.names = F, col.names = F, sep = ",")
-
-# get scaled
-atts.lower = numeric(length(atts))
-atts.upper = numeric(length(atts))
-for (i in 1:length(atts)) {
-  att.vals = c(df.s1[,atts.opt1[i]],df.s1[,atts.opt2[i]])
-  atts.lower[i] = min(att.vals)
-  atts.upper[i] = max(att.vals)
-}
-
-write.table(atts.lower, paste0(filepath_modelinput, 'modeling_lb.csv'), row.names = F, col.names = F, sep = ",")
-write.table(atts.upper, paste0(filepath_modelinput, 'modeling_ub.csv'), row.names = F, col.names = F, sep = ",")
-
-df.s1$first.att = NULL
-df.s1$first.maxdiff.att = NULL
-for (i in 1:nrow(df.s1)) {
-  cur.order = as.numeric.vector(df.s1$atts.order[i])
-  df.s1$first.att[i] = which(cur.order == 1)
-  for (j in 1:length(cur.order)) {
-    cur.att = which(cur.order == j)
-    cur.att.name = atts.opt.diff[cur.att]
-    if (abs(df.s1[i,cur.att.name]) == max(abs(df.s1[,cur.att.name]))) {
-      df.s1$first.maxdiff.att[i] = cur.att
-      break
-    }
-  }
-}
-
-write.table(df.s1 %>% dplyr::select(subject.num, first.att), paste0(filepath_modelinput, 'first_atts.csv'), row.names = F, col.names = F, sep = ",")
-write.table(df.s1 %>% dplyr::select(subject.num, first.maxdiff.att), paste0(filepath_modelinput, 'first_maxdiff_atts.csv'), row.names = F, col.names = F, sep = ",")
-
-# Do model-fitting --------------------------------------------------------
-# This section takes a long time to run, and is here for completeness.
-# You can just skip to the next section, where we import the pre-computed modeling results.
-
-source("model-fitting/model-fitting.R")
-stan_model_full <- stan_model("model-fitting/stan-program.stan")
-stan_model_binwts <- stan_model("model-fitting/stan-program-binwts.stan")
-
-numSubj = length(subjlist)
-option_diffs_allsubj = vector(mode = 'list', numSubj)
-for (subj in 1:numSubj) {
-  option_diffs_allsubj[[subj]] = t(as.matrix(df.s1 %>%
-                                               filter(subject == subjlist[subj]) %>%
-                                               select(all_of(atts.opt.scaled.diff))))
-}
-option_diffs_touse = option_diffs_allsubj
-save(option_diffs_allsubj, file = 'model-fitting/option_diffs.rdata') # save for simulations
-
-choices_touse = vector(mode = 'list', numSubj)
-for (subj in 1:numSubj) {
-  choices_touse[[subj]] = df.s1[df.s1$subject == subjlist[subj],'choice']
-}
-
-## FIT FULL
-stan_results_full = doFitting(stan_model_full, option_diffs_touse, choices_touse, 0, 0)
-stan_results_binatts <- doFitting(stan_model_full, option_diffs_touse, choices_touse, 1, 0)
-stan_results_binwts <- doFitting(stan_model_binwts, option_diffs_touse, choices_touse, 0, 1, all_combinations_binwts)
-stan_results_binattswts <- doFitting(stan_model_binwts, option_diffs_touse, choices_touse, 1, 1, all_combinations_binwts)
-stan_results_oneatt <- doFitting(stan_model_binwts, option_diffs_touse, choices_touse, 0, 1, all_combinations_singleatt)
-stan_results_oneattbinatts <- doFitting(stan_model_binwts, option_diffs_touse, choices_touse, 1, 1, all_combinations_singleatt)
-
-save(numSubj, numAtts,
-     option_diffs_touse, choices_touse,
-     stan.seed, numChains, numIter,
-     generateChoices, doFitting, get_all_diagnostics,
-     all_combinations_binwts, all_combinations_singleatt,
-     stan_results_full, stan_results_binatts, stan_results_binwts, stan_results_binattswts, stan_results_oneatt, stan_results_oneattbinatts,
-     file = paste0(filepath, 'modeling-output/modelfitting_output.rdata'))
-
-#rm(stan_results_full, stan_results_binatts, stan_results_binwts, stan_results_binattswts,stan_results_oneatt, stan_results_oneattbinatts)
-#gc()
-
 # Import modeling results ------------------------------------------
+# Model-fitting is done in "fit-subjects.R"
 if (participant_type == 'decider') {
-  filepath_modeloutput = paste0(filepath, 'modeling-output/')
-  
+  fitting_results = combine_lists(paste0(filepath, 'modeling-output/'))
+
   decider.names = df.demo$subject
   decider.nums = df.demo$subject.num
 } else { # observer stuff
-  filepath_modeloutput = paste0(filepath_decider, 'modeling-output/')
+  fitting_results = combine_lists(paste0(filepath_decider, 'modeling-output/'))
   
   ## Load the subject mapping data (which should have been saved from the decider analysis)
   df.map = read.csv(paste0(filepath, 'observer_mapping.csv'), header = F)
@@ -769,35 +708,81 @@ if (participant_type == 'decider') {
 
 ## model comparison
 
-df.lls = read.csv(paste0(filepath_modeloutput,'lls.csv'), header = F)
-df.lmes = read.csv(paste0(filepath_modeloutput,'lmes.csv'), header = F)
-df.posts = read.csv(paste0(filepath_modeloutput,'posts.csv'), header = F)
-df.posts$subject = decider.names
-df.posts$subject.num = decider.nums
-df.questions = read.csv(paste0(filepath_modeloutput,'questions.csv'), header = F)
-df.best = read.csv(paste0(filepath_modeloutput,'best.csv'), header = F)
+# values to extract:
+# best model for each subject, posterior probability of that model, lme of that model
+# posterior & lme for reported model
+# posterior for each model
+# prob for each of the three properties
+# loo results
+# diagnostic results
 
-for (s in 1:nrow(df.demo)) {
+numHeuristics <- 3
+heuristic_families <- list(
+  list(1:4, 5:6),
+  list(1:2, 3:4),
+  list(c(1,3,5), c(2,4,6))
+)
+
+df.demo$actual.model.num = NA
+df.demo$actual.model.prob = NA
+df.demo$actual.model.lme = NA
+df.demo$actual.inv.temp = NA
+df.demo$actual.model.loo = NA
+df.demo$actual.model.diagnostics = NA
+df.demo$process.accuracy.model.prob = NA
+df.demo$reported.model.lme = NA
+df.demo$norm.model.prob = NA
+numSubj = length(subjlist)
+model_weights = vector(mode='list', length = numSubj)
+for (s in 1:numSubj) {
   decider.num = ifelse(participant_type == 'decider',
                               s,
                               df.demo$target_id_num[s])
   
   if (length(decider.num) > 0) {
     df.demo$decider.subj.num[s] = decider.num
-    df.demo$actual.model.num[s] = df.best$V1[decider.num]
-    df.demo$actual.q1.prob[s] = df.questions$V1[decider.num]
-    df.demo$actual.q2.prob[s] = df.questions$V2[decider.num]
-    df.demo$actual.q3.prob[s] = df.questions$V3[decider.num]
     
-    df.demo$actual.model.prob[s] = df.posts[decider.num, df.demo$actual.model.num[s]]
-    df.demo$actual.model.ll[s] = df.lls[decider.num, df.demo$actual.model.num[s]]
-    df.demo$actual.model.lme[s] = df.lmes[decider.num, df.demo$actual.model.num[s]]
-    df.demo$process.accuracy.model.prob[s] = df.posts[decider.num, df.demo$reported.model.num[s]]
-    df.demo$reported.model.lme[s] = df.lmes[decider.num, df.demo$reported.model.num[s]]
-    df.demo$norm.model.prob[s] = df.posts[decider.num, df.demo$norm.model.num[s]]
+    model_temps = rep(NA,length(models))
+    model_weights[[s]] = matrix(NA, nrow = length(models), ncol = numAtts)
+    colnames(model_weights[[s]]) = atts
+    model_probs = rep(NA,length(models))
+    model_lmes = rep(NA,length(models))
+    for (m in 1:length(models)) {
+      if (!is.null(fitting_results[[decider.num]][[1]])) {
+        params_cur = fitting_results[[decider.num]][[m]][[1]]
+        model_temps[m] = params_cur[1]
+        model_weights[[s]][m,] = params_cur[2:(numAtts+1)]
+        model_lmes[m] = fitting_results[[decider.num]][[m]][[2]]
+      }
+    }
+    
+    model_mes = exp(model_lmes)
+    model_probs = model_mes / sum(model_mes)
     
     for (m in 1:length(models)) {
-      df.demo[s,paste0('model.', models[m], '.prob')] = df.posts[decider.num, m]
+      df.demo[s,paste0('model.', models[m], '.prob')] = model_probs[m]
+    }
+    
+    if (any(!is.na(model_probs))) {
+      # stats of best-fitting model
+      df.demo$actual.model.num[s] = which.max(model_probs)
+      df.demo$actual.model.prob[s] = max(model_probs)
+      df.demo$actual.model.lme[s] = model_lmes[df.demo$actual.model.num[s]]
+      df.demo$actual.inv.temp[s] = model_temps[df.demo$actual.model.num[s]]
+      df.demo$actual.model.loo[s] = fitting_results[[decider.num]][[df.demo$actual.model.num[s]]][[5]]$estimates[1,1]
+      df.demo$actual.model.diagnostics[s] = fitting_results[[decider.num]][[df.demo$actual.model.num[s]]][4]
+      
+      # stats of reported model
+      df.demo$process.accuracy.model.prob[s] = model_probs[df.demo$reported.model.num[s]]
+      df.demo$reported.model.lme[s] = model_lmes[df.demo$reported.model.num[s]]
+      
+      # stats of norm model
+      df.demo$norm.model.prob[s] = model_probs[df.demo$reported.model.num[s]]
+    }
+    
+    # property questions
+    for (heuristic in 1:numHeuristics) {
+      df.demo[s, paste0('actual.h', heuristic, '.prob')] = mean(model_mes[heuristic_families[[heuristic]][[2]]]) / (mean(model_mes[heuristic_families[[heuristic]][[1]]]) + mean(model_mes[heuristic_families[[heuristic]][[2]]]))
     }
   } else {
     df.demo$decider.subj.num[s] = NA
@@ -806,105 +791,55 @@ for (s in 1:nrow(df.demo)) {
 
 ll.chance = log(.5 ^ numTrials)
 
-bound_num = function(x) {
-  return(ifelse(x >= 1, 
-                x - .001,
-                ifelse(x <= 0,
-                       x + .001,
-                       x)))
-}
-
 df.demo = df.demo %>%
   mutate(actual.model = models[actual.model.num],
          actual.model.fac = factor(actual.model, models.order, models.order),
          process.accuracy.model.dichotomized = reported.model.num == actual.model.num,
          norm.model.dichotomized = norm.model.num == actual.model.num,
-         process.accuracy.div.q1 = abs(actual.q1.prob - reported.q1),
-         process.accuracy.div.q2 = abs(actual.q2.prob - reported.q2),
-         process.accuracy.div.q3 = abs(actual.q3.prob - reported.q3),
-         actual.q1.prob.dichotomized = factor(actual.q1.prob > 0.5, c(F,T), q1.levels),
-         actual.q2.prob.dichotomized = factor(actual.q2.prob > 0.5, c(F,T), q2.levels),
-         actual.q3.prob.dichotomized = factor(actual.q3.prob > 0.5, c(F,T), q3.levels),
-         actual.q1.prob.dichotomized2 = factor(actual.q1.prob < 0.5, c(F,T), c('No', 'Yes')),
-         actual.q2.prob.dichotomized2 = factor(actual.q2.prob < 0.5, c(F,T), c('No', 'Yes')),
-         actual.q3.prob.dichotomized2 = factor(actual.q3.prob < 0.5, c(F,T), c('No', 'Yes')),
-         process.accuracy.q1.dichotomized = reported.q1.dichotomized2 == actual.q1.prob.dichotomized2,
-         process.accuracy.q2.dichotomized = reported.q2.dichotomized2 == actual.q2.prob.dichotomized2,
-         process.accuracy.q3.dichotomized = reported.q3.dichotomized2 == actual.q3.prob.dichotomized2,
+         process.accuracy.div.h1 = abs(actual.h1.prob - reported.h1),
+         process.accuracy.div.h2 = abs(actual.h2.prob - reported.h2),
+         process.accuracy.div.h3 = abs(actual.h3.prob - reported.h3),
+         actual.h1.prob.dichotomized = actual.h1.prob > 0.5,
+         actual.h2.prob.dichotomized = actual.h2.prob > 0.5,
+         actual.h3.prob.dichotomized = actual.h3.prob > 0.5,
+         process.accuracy.h1.dichotomized = reported.h1.dichotomized == actual.h1.prob.dichotomized,
+         process.accuracy.h2.dichotomized = reported.h2.dichotomized == actual.h2.prob.dichotomized,
+         process.accuracy.h3.dichotomized = reported.h3.dichotomized == actual.h3.prob.dichotomized,
          process.accuracy.model.relprob = process.accuracy.model.prob / actual.model.prob,
          norm.model.relprob = norm.model.prob / actual.model.prob,
-         actual.model.r2 = 1 - actual.model.ll / ll.chance) %>%
+         actual.model.loo.readable = exp(actual.model.loo/numTrials)) %>%
   rowwise() %>% mutate(
-    process.accuracy.div = mean(c(process.accuracy.div.q1, process.accuracy.div.q2, process.accuracy.div.q3)),
-    process.accuracy.qs.dichotomized = mean(c(process.accuracy.q1.dichotomized, process.accuracy.q2.dichotomized, process.accuracy.q3.dichotomized)),
+    process.accuracy.div = mean(c(process.accuracy.div.h1, process.accuracy.div.h2, process.accuracy.div.h3)),
+    process.accuracy.qs.dichotomized = mean(c(process.accuracy.h1.dichotomized, process.accuracy.h2.dichotomized, process.accuracy.h3.dichotomized)),
   )
 
 ## weights
-df.fitted.wad = read.csv(paste0(filepath_modeloutput,'fitted_empirical_weights_WAD.csv'), header = F)
-df.fitted.wp = read.csv(paste0(filepath_modeloutput,'fitted_empirical_weights_WP.csv'), header = F)
-df.fitted.ew = read.csv(paste0(filepath_modeloutput,'fitted_empirical_weights_EW.csv'), header = F)
-df.fitted.tal = read.csv(paste0(filepath_modeloutput,'fitted_empirical_weights_TAL.csv'), header = F)
-df.fitted.lex.raw = read.csv(paste0(filepath_modeloutput,'fitted_empirical_weights_LEXNB.csv'), header = F)
-df.fitted.lexb.raw = read.csv(paste0(filepath_modeloutput,'fitted_empirical_weights_LEXB.csv'), header = F)
-
-colnames(df.fitted.wad) = atts
-colnames(df.fitted.wp) = atts
-colnames(df.fitted.ew) = atts
-colnames(df.fitted.tal) = atts
-
-df.fitted.lex = df.fitted.wad
-for (i in 1:nrow(df.fitted.lex)) {
-  for (att in 1:length(atts)) {
-    if (df.fitted.lex.raw$V1[i] == att) {
-      df.fitted.lex[i,att] = ifelse(df.fitted.lex.raw$V2[i] == 1, 1, -1)
-    } else {
-      df.fitted.lex[i,att] = 0
-    }
-  }
-}
-df.fitted.lexb = df.fitted.wad
-for (i in 1:nrow(df.fitted.lexb)) {
-  for (att in 1:length(atts)) {
-    if (df.fitted.lexb.raw$V1[i] == att) {
-      df.fitted.lexb[i,att] = ifelse(df.fitted.lexb.raw$V2[i] == 1, 1, -1)
-    } else {
-      df.fitted.lexb[i,att] = 0
-    }
-  }
-}
-
-fitted.weights = list(df.fitted.wad, df.fitted.wp, df.fitted.ew, df.fitted.tal, df.fitted.lex, df.fitted.lexb)
 
 for (i in 1:nrow(df.attributes)) {
   rows.demo = as.character(df.demo$subject) == as.character(df.attributes$subject[i])
-  decider.num = ifelse(participant_type == 'decider',
-                       df.attributes$subject.num[i],
-                       df.demo$target_id_num[rows.demo])
   
   df.attributes$actual.model.num[i] = df.demo$actual.model.num[rows.demo]
-  df.attributes$reported.weight.actual[i] = ifelse(df.demo$actual.q1.prob.dichotomized[rows.demo] == 'One',
+  df.attributes$reported.weight.actual[i] = ifelse(df.demo$actual.h1.prob.dichotomized[rows.demo],
                                                    df.attributes$reported.weight.single[i],
-                                                   ifelse(df.demo$actual.q2.prob.dichotomized[rows.demo] == 'Binary',
+                                                   ifelse(df.demo$actual.h2.prob.dichotomized[rows.demo],
                                                           df.attributes$reported.weight.binary[i],
                                                           df.attributes$reported.weight.graded[i]))
+
+  df.attributes$fitted.weight.reported[i] = model_weights[[df.attributes$subject.num[i]]][df.attributes$reported.model.num[i],df.attributes$attribute[i]]
+  df.attributes$fitted.weight.actual[i] = model_weights[[df.attributes$subject.num[i]]][df.attributes$actual.model.num[i],df.attributes$attribute[i]]
   
-  if (!is.na(decider.num)) {
-    df.attributes$fitted.weight.reported[i] = fitted.weights[[df.attributes$reported.model.num[i]]][decider.num,df.attributes$attribute[i]]
-    df.attributes$fitted.weight.actual[i] = fitted.weights[[df.attributes$actual.model.num[i]]][decider.num,df.attributes$attribute[i]]
-    
-    model.prob = numeric(length(models))
-    model.att = numeric(length(models))
-    for (m in 1:length(models)) {
-      df.attributes[i, paste0('fitted.weight.', models[m])] = fitted.weights[[m]][decider.num,df.attributes$attribute[i]]
-      model.att[m] = df.attributes[i, paste0('fitted.weight.', models[m])]
-      model.prob[m] = df.demo[rows.demo, paste0('model.', models[m], '.prob')][[1]]
-    }
-    
-    df.attributes$fitted.weight.averaged[i] = sum(model.prob * model.att)
-    df.attributes$reported.weight.averaged[i] = sum(model.prob * c(df.attributes$reported.weight.graded[i], df.attributes$reported.weight.graded[i],
-                                                                    df.attributes$reported.weight.binary[i], df.attributes$reported.weight.binary[i],
-                                                                    df.attributes$reported.weight.single[i], df.attributes$reported.weight.single[i]))
+  model.prob = numeric(length(models))
+  model.att = numeric(length(models))
+  for (m in 1:length(models)) {
+    df.attributes[i, paste0('fitted.weight.', models[m])] = model_weights[[df.attributes$subject.num[i]]][m,df.attributes$attribute[i]]
+    model.att[m] = df.attributes[i, paste0('fitted.weight.', models[m])]
+    model.prob[m] = df.demo[rows.demo, paste0('model.', models[m], '.prob')][[1]]
   }
+  
+  df.attributes$fitted.weight.averaged[i] = sum(model.prob * model.att)
+  df.attributes$reported.weight.averaged[i] = sum(model.prob * c(df.attributes$reported.weight.graded[i], df.attributes$reported.weight.graded[i],
+                                                                  df.attributes$reported.weight.binary[i], df.attributes$reported.weight.binary[i],
+                                                                  df.attributes$reported.weight.single[i], df.attributes$reported.weight.single[i]))
 }
 
 df.attributes = df.attributes %>% mutate(reported.weight.actual.signed = reported.weight.actual * direction,
@@ -913,7 +848,7 @@ df.attributes = df.attributes %>% mutate(reported.weight.actual.signed = reporte
 
 # get subject-level accuracies
 df.attributes.subj = df.attributes %>% group_by(subject) %>%
-  summarize(num_same = sum(same & (reported.weight.graded > .1)),
+  summarize(num_same = sum(same & (reported.weight.graded > .1), na.rm = T),
             weight.accuracy.reported = cor(fitted.weight.reported, reported.weight.reported.signed),
             weight.accuracy.reported.rank = cor(fitted.weight.reported, reported.weight.reported.signed, method = 'kendall'),
             weight.accuracy.best = cor(fitted.weight.actual, reported.weight.actual.signed),
@@ -933,32 +868,20 @@ for (i in 1:nrow(df.demo)) {
   }
 }
 
-## get inv temps
-df.temp.wad = read.csv(paste0(filepath_modeloutput,'fitted_empirical_temps_WAD.csv'), header = F)
-df.temp.wp = read.csv(paste0(filepath_modeloutput,'fitted_empirical_temps_WP.csv'), header = F)
-df.temp.ew = read.csv(paste0(filepath_modeloutput,'fitted_empirical_temps_EW.csv'), header = F)
-df.temp.tal = read.csv(paste0(filepath_modeloutput,'fitted_empirical_temps_TAL.csv'), header = F)
-df.temp.lex = read.csv(paste0(filepath_modeloutput,'fitted_empirical_temps_LEXNB.csv'), header = F)
-df.temp.lexb = read.csv(paste0(filepath_modeloutput,'fitted_empirical_temps_LEXB.csv'), header = F)
-
-df.temp = bind_cols(df.temp.wad, df.temp.wp, df.temp.ew, df.temp.tal, df.temp.lex, df.temp.lexb)
-
-for (i in 1:nrow(df.demo)) {
-  df.demo$actual.inv.temp[i] = df.temp[i,df.demo$actual.model.num[i]]
-}
-
 # Normative alignment stuff
 df.demo = df.demo %>% mutate(
-  norm.q1.actual = actual.q1.prob * norm.q1 + (1-actual.q1.prob) * (1-norm.q1),
-  norm.q2.actual = actual.q2.prob * norm.q2 + (1-actual.q2.prob) * (1-norm.q2),
-  norm.q3.actual = actual.q3.prob * norm.q3 + (1-actual.q3.prob) * (1-norm.q3),
-  norm.q1.actual.dichotomized = norm.q1.dichotomized == actual.q1.prob.dichotomized,
-  norm.q2.actual.dichotomized = norm.q2.dichotomized == actual.q2.prob.dichotomized,
-  norm.q3.actual.dichotomized = norm.q3.dichotomized == actual.q3.prob.dichotomized) %>%
+  norm.h1.actual.div = abs(actual.h1.prob - norm.h1),
+  norm.h2.actual.div = abs(actual.h2.prob - norm.h2),
+  norm.h3.actual.div = abs(actual.h3.prob - norm.h3),
+  norm.h1.actual.dichotomized = norm.h1.dichotomized == actual.h1.prob.dichotomized,
+  norm.h2.actual.dichotomized = norm.h2.dichotomized == actual.h2.prob.dichotomized,
+  norm.h3.actual.dichotomized = norm.h3.dichotomized == actual.h3.prob.dichotomized) %>%
   rowwise() %>% mutate(
-    norm.actual = mean(c(norm.q1.actual, norm.q2.actual, norm.q3.actual)),
-    norm.actual.dichotomized = mean(c(norm.q1.actual.dichotomized, norm.q2.actual.dichotomized, norm.q3.actual.dichotomized))
+    norm.actual.div = mean(c(norm.h1.actual.div, norm.h2.actual.div, norm.h3.actual.div)),
+    norm.actual.dichotomized = mean(c(norm.h1.actual.dichotomized, norm.h2.actual.dichotomized, norm.h3.actual.dichotomized))
   )
+
+rm(fitting_results)
 
 # Browser events ----------------------------------------------------------
 
@@ -1033,7 +956,6 @@ df.s1.practice.filt = df.s1.practice %>% filter(!(subject %in% exclude.subj))
 df.s2.filt = df.s2 %>% filter(!(subject %in% exclude.subj))
 df.attributes.filt = df.attributes %>% filter(!(subject %in% exclude.subj))
 df.attributes.subj.filt = df.attributes.subj %>% filter(!(subject %in% exclude.subj))
-df.posts.filt = df.posts %>% filter(!(subject %in% exclude.subj))
 df.cc.filt = df.cc %>% filter(!(subject %in% exclude.subj))
 df.cc.subj.filt = df.cc.subj %>% filter(!(subject %in% exclude.subj))
 
@@ -1086,15 +1008,15 @@ ggplot(df.demo.filt, aes(x = actual.model.fac)) +
   theme_black() +
   labs(x = '\nBest-fitting model', y = '# of subjects')
 
-ggplot(df.demo.filt, aes(x = 1-actual.q1.prob)) +
+ggplot(df.demo.filt, aes(x = actual.h1.prob)) +
   geom_histogram(color='white') +
   theme_black() +
   labs(x = '\nProbability that subject\nused heuristic', y = '# of subjects')
-ggplot(df.demo.filt, aes(x = 1-actual.q2.prob)) +
+ggplot(df.demo.filt, aes(x = actual.h2.prob)) +
   geom_histogram(color='white') +
   theme_black() +
   labs(x = '\nProbability that subject\nused heuristic', y = '# of subjects')
-ggplot(df.demo.filt, aes(x = 1-actual.q3.prob)) +
+ggplot(df.demo.filt, aes(x = actual.h3.prob)) +
   geom_histogram(color='white') +
   theme_black() +
   labs(x = '\nProbability that subject\nused heuristic', y = '# of subjects')
@@ -1107,17 +1029,18 @@ ggplot(df.attributes.filt, aes(x = fitted.weight.Full)) +
   scale_x_continuous(limits = c(-1,1),
                      breaks = c(-1, 0, 1))
 
-
 # how good were the model fits?
-df.posts.filt$reported.model.fac = df.demo.filt$reported.model.fac
-df.posts.filt$r.sq = df.demo.filt$actual.model.r2
-df.posts.long = df.posts.filt %>% 
+df.probs = df.demo.filt %>%
+  select(subject.num, all_of(model.prob.names), actual.model.loo.readable, reported.model.fac)
+#df.posts.filt$reported.model.fac = df.demo.filt$reported.model.fac
+#df.posts.filt$r.sq = df.demo.filt$actual.model.r2
+df.probs.long = df.probs %>% 
   mutate(subject.num = factor(subject.num),
-         subject.num = fct_reorder(subject.num, r.sq)) %>%
-  pivot_longer(!c(subject.num,r.sq,reported.model.fac,subject), names_to = 'model', values_to = 'prob') %>%
+         subject.num = fct_reorder(subject.num, actual.model.loo.readable)) %>%
+  pivot_longer(!c(subject.num,actual.model.loo.readable,reported.model.fac), names_to = 'model', values_to = 'prob') %>%
   arrange(subject.num, desc(prob)) %>%
   mutate(reported.model = reported.model.fac == model)
-ggplot(df.posts.long,
+ggplot(df.probs.long,
        aes(x = prob, y = subject.num, group = subject.num, color = subject.num)) +
   geom_point(size = 2) +
   guides(group = 'none', color = 'none') +#,
@@ -1130,7 +1053,7 @@ ggplot(df.posts.long,
   labs(x = 'Prob',
        y = 'Subject')
 
-ggplot(df.posts.long,
+ggplot(df.probs.long,
        aes(x = subject.num, y = prob, group = subject.num, color = subject.num)) +
   geom_point(size = 2) +
   guides(group = 'none', color = 'none') +#,
@@ -1143,22 +1066,21 @@ ggplot(df.posts.long,
   labs(x = 'Subject',
        y = 'Probability of model')
 
-ggplot(df.demo.filt, aes(x = actual.model.r2)) +
+ggplot(df.demo.filt, aes(x = actual.model.loo.readable)) +
   geom_histogram(color = 'white', bins = 20) +
   labs(x = "\nR-squared of best-fitting model",
        y = "# of subjects") +
-  geom_vline(xintercept = mean(df.demo.filt$actual.model.r2), color = 'red') +
-  geom_vline(xintercept = mean(df.demo.filt$actual.model.r2) + se(df.demo.filt$actual.model.r2), color = 'red', linetype = 'dashed') +
-  geom_vline(xintercept = mean(df.demo.filt$actual.model.r2) - se(df.demo.filt$actual.model.r2), color = 'red', linetype = 'dashed') +
+  geom_vline(xintercept = mean(df.demo.filt$actual.model.loo.readable), color = 'red') +
+  geom_vline(xintercept = mean(df.demo.filt$actual.model.loo.readable) + se(df.demo.filt$actual.model.loo.readable), color = 'red', linetype = 'dashed') +
+  geom_vline(xintercept = mean(df.demo.filt$actual.model.loo.readable) - se(df.demo.filt$actual.model.loo.readable), color = 'red', linetype = 'dashed') +
   scale_y_continuous(breaks = NULL) +
   theme_black()
-get.ci(df.demo.filt$actual.model.r2)
+get.ci(df.demo.filt$actual.model.loo.readable)
 
 # how certain were the model fits?
-
-df.certainty = df.posts.long %>% group_by(subject.num) %>% filter(row_number() <= 2) %>%
+df.certainty = df.probs.long %>% group_by(subject.num) %>% filter(row_number() <= 2) %>%
   mutate(diff = prob - lead(prob, default = last(prob))) %>% filter(row_number() < 2) %>%
-  arrange(subject)
+  arrange(subject.num)
 df.demo.filt$actual.model.difftoptwo = df.certainty$diff
 ggplot(df.demo.filt, aes(x = actual.model.difftoptwo)) +
   geom_histogram(color = 'white', bins = 20) +
@@ -1181,19 +1103,14 @@ ggplot(df.demo.filt, aes(x = actual.model.prob)) +
 get.ci(df.demo.filt$actual.model.prob)
 
 # relationship b/w model fits and other things
-ggplot(df.demo.filt, aes(x = cv_result, y = appropriateness)) +
+ggplot(df.demo.filt, aes(x = actual.model.loo.readable, y = appropriateness)) +
   geom_point(color = 'gray') +
   geom_smooth(method='lm', color = 'white') +
   theme_black() +
   labs(x = 'Best-fitting model R^2', y = 'Rating')
-summary(lm(scale(actual.model.r2) ~ scale(appropriateness), data = df.demo.filt))
-df.demo.filt %$% cor.test(actual.model.r2, appropriateness)
+summary(lm(scale(actual.model.loo.readable) ~ scale(appropriateness), data = df.demo.filt))
 
-ggplot(df.demo.filt, aes(x = consistency1, y = actual.inv.temp)) +
-  geom_point() +
-  geom_smooth(method='lm')
-
-ggplot(df.demo.filt, aes(x = actual.model.r2, y = consistency1)) +
+ggplot(df.demo.filt, aes(x = actual.model.loo.readable, y = consistency1)) +
   geom_point(color = 'gray') +
   geom_smooth(method='lm', color = 'white') +
   theme_black() +
@@ -1201,7 +1118,7 @@ ggplot(df.demo.filt, aes(x = actual.model.r2, y = consistency1)) +
        y = 'Self-reported consistency\nin heuristic use')
 df.demo.filt %$% cor.test(actual.model.r2, consistency1)
 
-ggplot(df.demo.filt, aes(x = actual.model.r2, y = consistency2)) +
+ggplot(df.demo.filt, aes(x = actual.model.loo.readable, y = consistency2)) +
   geom_point(color = 'gray') +
   geom_smooth(method='lm', color = 'white') +
   theme_black() +
@@ -1209,7 +1126,7 @@ ggplot(df.demo.filt, aes(x = actual.model.r2, y = consistency2)) +
        y = 'Self-reported consistency\nin weights')
 df.demo.filt %$% cor.test(actual.model.r2, consistency2)
 
-ggplot(df.demo.filt, aes(x = actual.inv.temp, y = actual.model.r2)) +
+ggplot(df.demo.filt, aes(x = actual.inv.temp, y = actual.model.loo.readable)) +
   geom_point(color = 'gray') +
   geom_smooth(method='lm', color = 'white') +
   theme_black() +
@@ -1217,39 +1134,40 @@ ggplot(df.demo.filt, aes(x = actual.inv.temp, y = actual.model.r2)) +
        y = 'Best-fitting model R^2')
 summary(lm(scale(actual.model.r2) ~ scale(appropriateness), data = df.demo.filt))
 
-ggplot(df.demo.filt, aes(x = cv_result, y = process.accuracy.div)) +
+ggplot(df.demo.filt, aes(x = actual.model.loo.readable, y = process.accuracy.div)) +
   geom_point(color = 'gray') +
   geom_smooth(method='lm', color = 'white') +
   theme_black() +
   labs(x = '\nRating', y = 'Out-of-sample likelihood\nof best model')
-ggplot(df.demo.filt, aes(x = cv_result, y = weight.accuracy.averaged)) +
+ggplot(df.demo.filt, aes(x = actual.model.loo.readable, y = weight.accuracy.averaged)) +
   geom_point(color = 'gray') +
   geom_smooth(method='lm', color = 'white') +
   theme_black() +
   labs(x = '\nRating', y = 'Out-of-sample likelihood\nof best model')
 
-summary(lm(process.accuracy.div ~ scale(cv_result), data = df.demo.filt))
+summary(lm(process.accuracy.div ~ scale(actual.model.loo.readable), data = df.demo.filt))
+summary(lm(weight.accuracy.averaged ~ scale(actual.model.loo.readable), data = df.demo.filt))
 
 # Heuristic awareness -------------------------------------------------------
 ## what models did people report using?
-ggplot(df.demo.filt, aes(x = 1-reported.q1)) +
+ggplot(df.demo.filt, aes(x = reported.h1)) +
   geom_histogram(color='white') +
   theme_black() +
   labs(x = '\nReported probability\nof using heuristic', y = '# of subjects')
-ggplot(df.demo.filt, aes(x = 1-reported.q2)) +
+ggplot(df.demo.filt, aes(x = reported.h2)) +
   geom_histogram(color='white') +
   theme_black() +
   labs(x = '\nReported probability\nof using heuristic', y = '# of subjects')
-ggplot(df.demo.filt, aes(x = 1-reported.q3)) +
+ggplot(df.demo.filt, aes(x = reported.h3)) +
   geom_histogram(color='white') +
   theme_black() +
   labs(x = '\nReported probability\nof using heuristic', y = '# of subjects')
 
 # get version w/o single-att people
-df.demo.filt.multiatt = df.demo.filt %>% filter(actual.q1.prob.dichotomized == 'Multiple')
+df.demo.filt.multiatt = df.demo.filt %>% filter(actual.h1.prob.dichotomized == 'Multiple')
 df.attributes.filt.multiatt = df.attributes.filt %>% filter(subject %in% df.demo.filt.multiatt$subject)
 
-# heat maps
+## heat map comparison
 df.demo.heat = df.demo.filt %>% group_by(reported.model.fac, actual.model.fac) %>%
   summarize(num.subj = n())
 ggplot(df.demo.heat, aes(x = actual.model.fac, y = reported.model.fac,
@@ -1273,17 +1191,18 @@ ggplot(df.demo.heat.normed, aes(x = actual.model.fac, y = reported.model.fac,
   guides(fill = 'none') +
   theme_black()
 
-# How good or bad were the models that subjects reported using?
+## How good or bad were the models that subjects reported using?
 
-set.seed(123)
+# rel prob
+set.seed(12345)
 process.accuracy.model.prob.rand = numeric(1000)
 process.accuracy.qs.rand = numeric(1000)
 for (i in 1:length(process.accuracy.model.prob.rand)) {
-  nrow.posts = nrow(df.posts.filt)
-  rnd.choices = sample(length(models),nrow.posts,replace=T)
-  test = numeric(nrow.posts)
-  for (j in 1:nrow.posts) {
-    test[j] = df.posts.filt[j,rnd.choices[j]] / max(df.posts.filt[j,1:6])
+  nrow.probs = nrow(df.probs)
+  rnd.choices = sample(length(models),nrow.probs,replace=T)
+  test = numeric(nrow.probs)
+  for (j in 1:nrow.probs) {
+    test[j] = as.numeric(df.probs[j,model.prob.names[rnd.choices[j]]] / max(df.probs[j,model.prob.names[1:6]]))
   }
   process.accuracy.model.prob.rand[i] = mean(test)
 }
@@ -1294,53 +1213,29 @@ ggplot(df.demo.filt, aes(x = process.accuracy.model.relprob)) +
        y = "# of subjects") +
   scale_y_continuous(breaks = NULL) +
   theme_black() +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.model.prob), linetype = 1, color = 'red') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.model.prob)+se(df.demo.filt$process.accuracy.model.prob), linetype = 'dashed', color = 'red') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.model.prob)-se(df.demo.filt$process.accuracy.model.prob), linetype = 'dashed', color = 'red') +
+  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.model.relprob), linetype = 1, color = 'red') +
+  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.model.relprob)+se(df.demo.filt$process.accuracy.model.relprob), linetype = 'dashed', color = 'red') +
+  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.model.relprob)-se(df.demo.filt$process.accuracy.model.relprob), linetype = 'dashed', color = 'red') +
   geom_vline(xintercept = mean(process.accuracy.model.prob.rand), color = 'gray')
-
-ggplot(df.demo.filt, aes(x = process.accuracy.model.relprob)) +
-  geom_histogram(bins = 25) +
-  labs(x = "\nReported model BF",
-       y = "# of subjects") +
-  scale_y_continuous(breaks = NULL) +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.model.prob), linetype = 1, color = 'red') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.model.prob)+se(df.demo.filt$process.accuracy.model.prob), linetype = 'dashed', color = 'red') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.model.prob)-se(df.demo.filt$process.accuracy.model.prob), linetype = 'dashed', color = 'red') +
-  geom_vline(xintercept = mean(process.accuracy.model.prob.rand), color = 'gray')
-
-
 t.test(df.demo.filt$process.accuracy.model.relprob - mean(process.accuracy.model.prob.rand)) 
 
-ggplot(df.demo.filt, aes(x = process.accuracy.qs)) +
-  geom_histogram(color = 'white', bins = 25) +
-  labs(x = "\nAverage accuracy across\nprocess questions",
-       y = "# of subjects") +
-  scale_y_continuous(breaks = NULL) +
-  theme_black() +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.qs), linetype = 1, color = 'red') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.qs)+se(df.demo.filt$process.accuracy.qs), linetype = 'dotted', color = 'red') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.qs)-se(df.demo.filt$process.accuracy.qs), linetype = 'dotted', color = 'red') +
-  geom_vline(xintercept = mean(process.accuracy.qs.rand), linetype = 'dashed', color = 'white')
-
 # heuristic error
-
 process.accuracy.div.rand = numeric(nrow(df.demo.filt))
-process.accuracy.div.q1.rand = numeric(nrow(df.demo.filt))
-process.accuracy.div.q2.rand = numeric(nrow(df.demo.filt))
-process.accuracy.div.q3.rand = numeric(nrow(df.demo.filt))
+process.accuracy.div.h1.rand = numeric(nrow(df.demo.filt))
+process.accuracy.div.h2.rand = numeric(nrow(df.demo.filt))
+process.accuracy.div.h3.rand = numeric(nrow(df.demo.filt))
 for (subj in 1:nrow(df.demo.filt)) {
-  q.probs = c(df.demo.filt$actual.q1.prob[subj],
-              df.demo.filt$actual.q2.prob[subj],
-              df.demo.filt$actual.q3.prob[subj])
+  q.probs = c(df.demo.filt$actual.h1.prob[subj],
+              df.demo.filt$actual.h2.prob[subj],
+              df.demo.filt$actual.h3.prob[subj])
     
   avg.div = numeric(3)
   for (q in 1:3) {
     avg.div[q] = mean(abs(runif(10000) - q.probs[q]))
   }
-  process.accuracy.div.q1.rand[subj] = avg.div[1]
-  process.accuracy.div.q2.rand[subj] = avg.div[2]
-  process.accuracy.div.q3.rand[subj] = avg.div[3]
+  process.accuracy.div.h1.rand[subj] = avg.div[1]
+  process.accuracy.div.h2.rand[subj] = avg.div[2]
+  process.accuracy.div.h3.rand[subj] = avg.div[3]
   process.accuracy.div.rand[subj] = mean(avg.div)
 }
 ggplot(df.demo.filt, aes(x = process.accuracy.div)) +
@@ -1354,176 +1249,129 @@ ggplot(df.demo.filt, aes(x = process.accuracy.div)) +
 get.ci(df.demo.filt$process.accuracy.div)
 t.test(df.demo.filt$process.accuracy.div - mean(process.accuracy.div.rand))
 
-ggplot(df.demo.filt, aes(x = process.accuracy.div.q1)) +
+ggplot(df.demo.filt, aes(x = process.accuracy.div.h1)) +
   geom_histogram(color = 'white') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.q1), color = 'red') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.q1) + se(df.demo.filt$process.accuracy.div.q1), color = 'red', linetype = 'dashed') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.q1) - se(df.demo.filt$process.accuracy.div.q1), color = 'red', linetype = 'dashed') +
-  geom_vline(xintercept = mean(process.accuracy.div.q1.rand), color = 'gray') +
+  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.h1), color = 'red') +
+  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.h1) + se(df.demo.filt$process.accuracy.div.h1), color = 'red', linetype = 'dashed') +
+  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.h1) - se(df.demo.filt$process.accuracy.div.h1), color = 'red', linetype = 'dashed') +
+  geom_vline(xintercept = mean(process.accuracy.div.h1.rand), color = 'gray') +
   labs(x = '\nHeuristic error', y = '# of subjects') +
   theme_black()
-t.test(df.demo.filt$process.accuracy.div.q1 - mean(process.accuracy.div.q1.rand))
-ggplot(df.demo.filt, aes(x = process.accuracy.div.q2)) +
+t.test(df.demo.filt$process.accuracy.div.h1 - mean(process.accuracy.div.h1.rand))
+ggplot(df.demo.filt, aes(x = process.accuracy.div.h2)) +
   geom_histogram(color = 'white') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.q2), color = 'red') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.q2) + se(df.demo.filt$process.accuracy.div.q2), color = 'red', linetype = 'dashed') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.q2) - se(df.demo.filt$process.accuracy.div.q2), color = 'red', linetype = 'dashed') +
-  geom_vline(xintercept = mean(process.accuracy.div.q2.rand), color = 'gray') +
+  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.h2), color = 'red') +
+  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.h2) + se(df.demo.filt$process.accuracy.div.h2), color = 'red', linetype = 'dashed') +
+  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.h2) - se(df.demo.filt$process.accuracy.div.h2), color = 'red', linetype = 'dashed') +
+  geom_vline(xintercept = mean(process.accuracy.div.h2.rand), color = 'gray') +
   labs(x = '\nHeuristic error', y = '# of subjects') +
   theme_black()
-t.test(df.demo.filt$process.accuracy.div.q2 - mean(process.accuracy.div.q2.rand))
-ggplot(df.demo.filt, aes(x = process.accuracy.div.q3)) +
+t.test(df.demo.filt$process.accuracy.div.h2 - mean(process.accuracy.div.h2.rand))
+ggplot(df.demo.filt, aes(x = process.accuracy.div.h3)) +
   geom_histogram(color = 'white') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.q3), color = 'red') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.q3) + se(df.demo.filt$process.accuracy.div.q3), color = 'red', linetype = 'dashed') +
-  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.q3) - se(df.demo.filt$process.accuracy.div.q3), color = 'red', linetype = 'dashed') +
-  geom_vline(xintercept = mean(process.accuracy.div.q3.rand), color = 'gray') +
+  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.h3), color = 'red') +
+  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.h3) + se(df.demo.filt$process.accuracy.div.h3), color = 'red', linetype = 'dashed') +
+  geom_vline(xintercept = mean(df.demo.filt$process.accuracy.div.h3) - se(df.demo.filt$process.accuracy.div.h3), color = 'red', linetype = 'dashed') +
+  geom_vline(xintercept = mean(process.accuracy.div.h3.rand), color = 'gray') +
   labs(x = '\nHeuristic error', y = '# of subjects') +
   theme_black()
-t.test(df.demo.filt$process.accuracy.div.q3 - mean(process.accuracy.div.q3.rand))
+t.test(df.demo.filt$process.accuracy.div.h3 - mean(process.accuracy.div.h3.rand))
 
 ggplot(df.demo.filt, aes(x = process.accuracy.div, y = process.accuracy.model.relprob)) +
   geom_point(color = 'white') +
   geom_smooth(method='lm', color = 'white') +
   theme_black()
 
-## feature-based analysis
+## comparing actual to reported
 # continuous version
-ggplot(df.demo.filt, aes(x = 1-actual.q1.prob, y = 1-reported.q1)) +
+ggplot(df.demo.filt, aes(x = actual.h1.prob, y = reported.h1)) +
   geom_point(color='gray') +
   geom_smooth(method='lm', color = 'white') +
   theme_black() +
   #labs(x='',y='')
   labs(x = '\nProbability that participant used\nsingle attribute heuristic',
        y = 'Degree to which participant\nreported using heuristic')
-summary(lm(scale(reported.q1) ~ scale(actual.q1.prob), df.demo.filt))
-df.demo.filt %$% cor.test(reported.q1, actual.q1.prob)
-ggplot(df.demo.filt, aes(x = 1-actual.q2.prob, y = 1-reported.q2)) +
+summary(lm(scale(reported.h1) ~ scale(actual.h1.prob), df.demo.filt))
+df.demo.filt %$% cor.test(reported.h1, actual.h1.prob)
+ggplot(df.demo.filt, aes(x = actual.h2.prob, y = reported.h2)) +
   geom_point(color='gray') +
   geom_smooth(method='lm', color = 'white') +
   theme_black() +
   #labs(x='',y='')
   labs(x = '\nProbability that participant\nused binary weights heuristic',
        y = 'Degree to which participant\nreported using heuristic')
-summary(lm(scale(reported.q2) ~ scale(actual.q2.prob), df.demo.filt))
-df.demo.filt %$% cor.test(reported.q2, actual.q2.prob, method = 'kendall')
-ggplot(df.demo.filt, aes(x = 1-actual.q3.prob, y = 1-reported.q3)) +
+summary(lm(scale(reported.h2) ~ scale(actual.h2.prob), df.demo.filt))
+df.demo.filt %$% cor.test(reported.h2, actual.h2.prob, method = 'kendall')
+ggplot(df.demo.filt, aes(x = actual.h3.prob, y = reported.h3)) +
   geom_point(color='gray') +
   geom_smooth(method='lm', color = 'white') +
   theme_black() +
   #labs(x='',y='')
   labs(x = '\nProbability that participant\nused binary atts heuristic',
        y = 'Degree to which participant\nreported using heuristic')
-summary(lm(reported.q3 ~ actual.q3.prob, df.demo.filt))
-cor.test(df.demo.filt$actual.q3.prob, df.demo.filt$reported.q3)
-df.demo.filt %$% cor.test(reported.q3, actual.q3.prob, method = 'kendall')
+summary(lm(reported.h3 ~ actual.h3.prob, df.demo.filt))
+cor.test(df.demo.filt$actual.h3.prob, df.demo.filt$reported.h3)
+df.demo.filt %$% cor.test(reported.h3, actual.h3.prob, method = 'kendall')
 
 # dichotomized version
-q1.grouped = df.demo.filt %>% group_by(actual.q1.prob.dichotomized) %>%
-  summarize(Multiple.dichotomized = mean(reported.q1.dichotomized == 'Multiple'),
-            Multiple.dichotomized.se = se.prop(reported.q1.dichotomized == 'Multiple'),
-            Multiple = mean(reported.q1),
-            Multiple.se = se(reported.q1))
-ggplot(q1.grouped, aes(x = actual.q1.prob.dichotomized, y = Multiple)) +
+h1.grouped = df.demo.filt %>% group_by(actual.h1.prob.dichotomized) %>%
+  summarize(reported.h1.dichotomized.m = mean(reported.h1.dichotomized),
+            reported.h1.dichotomized.se = se.prop(reported.h1.dichotomized))
+ggplot(h1.grouped, aes(x = actual.h1.prob.dichotomized, y = reported.h1.dichotomized.m)) +
   geom_col(color = 'white') +
-  geom_errorbar(aes(ymin = Multiple - Multiple.se,
-                    ymax = Multiple + Multiple.se),
-                width = .2, color = 'white') +
-  theme_black() +
-  labs(x = '\nProcess Question 1:\nModel-fitting said multiple atts',
-       y = '% reporting using multiple atts') +
-  geom_hline(yintercept = .5, color = 'red', linetype = 'dashed') +
-  scale_x_discrete(labels = c('False', 'True'))
-q1.grouped.rev = df.demo.filt %>% group_by(actual.q1.prob.dichotomized) %>%
-  summarize(One = mean(reported.q1.dichotomized == 'One'),
-            One.se = se.prop(reported.q1.dichotomized == 'One')) %>%
-  mutate(actual.q1.prob.dichotomized = factor(actual.q1.prob.dichotomized, c('Multiple', 'One'), c('False', 'True')))
-ggplot(q1.grouped.rev, aes(x = actual.q1.prob.dichotomized, y = One)) +
-  geom_col(color = 'white') +
-  geom_errorbar(aes(ymin = One - One.se,
-                    ymax = One + One.se),
+  geom_errorbar(aes(ymin = reported.h1.dichotomized.m - reported.h1.dichotomized.se,
+                    ymax = reported.h1.dichotomized.m + reported.h1.dichotomized.se),
                 width = .2, color = 'white') +
   theme_black() +
   labs(x = 'Used single att heuristic\n(prob > 0.5)',
        y = '% reporting\nusing heuristic')
 
-q2.grouped = df.demo.filt %>% group_by(actual.q2.prob.dichotomized) %>%
-  summarize(Multiple = mean(reported.q2.dichotomized == 'Graded'),
-            Multiple.se = se.prop(reported.q2.dichotomized == 'Graded'))
-ggplot(q2.grouped, aes(x = actual.q2.prob.dichotomized, y = Multiple)) +
+h2.grouped = df.demo.filt %>% group_by(actual.h2.prob.dichotomized) %>%
+  summarize(reported.h2.dichotomized.m = mean(reported.h2.dichotomized),
+            reported.h2.dichotomized.se = se.prop(reported.h2.dichotomized))
+ggplot(h2.grouped, aes(x = actual.h2.prob.dichotomized, y = reported.h2.dichotomized.m)) +
   geom_col(color = 'white') +
-  geom_errorbar(aes(ymin = Multiple - Multiple.se,
-                    ymax = Multiple + Multiple.se),
-                width = .2, color = 'white') +
-  theme_black() +
-  labs(x = '\nProcess Question 2:\nModel-fitting said graded weights',
-       y = '% reporting using graded weights') +
-  geom_hline(yintercept = .5, color = 'red', linetype = 'dashed')+
-  scale_x_discrete(labels = c('False', 'True'))
-q2.grouped.rev = df.demo.filt %>% group_by(actual.q2.prob.dichotomized) %>%
-  summarize(One = mean(reported.q2.dichotomized == 'Binary'),
-            One.se = se.prop(reported.q2.dichotomized == 'Binary')) %>%
-  mutate(actual.q2.prob.dichotomized = factor(actual.q2.prob.dichotomized, c('Graded', 'Binary'), c('False', 'True')))
-ggplot(q2.grouped.rev, aes(x = actual.q2.prob.dichotomized, y = One)) +
-  geom_col(color = 'white') +
-  geom_errorbar(aes(ymin = One - One.se,
-                    ymax = One + One.se),
+  geom_errorbar(aes(ymin = reported.h2.dichotomized.m - reported.h2.dichotomized.se,
+                    ymax = reported.h2.dichotomized.m + reported.h2.dichotomized.se),
                 width = .2, color = 'white') +
   theme_black() +
   labs(x = 'Used binary wts heuristic\n(prob > 0.5)',
        y = '% reporting\nusing heuristic')
 
-
-q3.grouped = df.demo.filt %>% group_by(actual.q3.prob.dichotomized) %>%
-  summarize(Multiple = mean(reported.q3.dichotomized == 'Graded'),
-            Multiple.se = se.prop(reported.q3.dichotomized == 'Graded'))
-ggplot(q3.grouped, aes(x = actual.q3.prob.dichotomized, y = Multiple)) +
+h3.grouped = df.demo.filt %>% group_by(actual.h3.prob.dichotomized) %>%
+  summarize(reported.h3.dichotomized.m = mean(reported.h3.dichotomized),
+            reported.h3.dichotomized.se = se.prop(reported.h3.dichotomized))
+ggplot(h3.grouped, aes(x = actual.h3.prob.dichotomized, y = reported.h3.dichotomized.m)) +
   geom_col(color = 'white') +
-  geom_errorbar(aes(ymin = Multiple - Multiple.se,
-                    ymax = Multiple + Multiple.se),
-                width = .2, color = 'white') +
-  theme_black() +
-  labs(x = '\nProcess Question 3:\nModel-fitting said graded att values',
-       y = '% reporting using graded att values') +
-  geom_hline(yintercept = .5, color = 'red', linetype = 'dashed')+
-  scale_x_discrete(labels = c('False', 'True'))
-q3.grouped.rev = df.demo.filt %>% group_by(actual.q3.prob.dichotomized) %>%
-  summarize(One = mean(reported.q3.dichotomized == 'Binary'),
-            One.se = se.prop(reported.q3.dichotomized == 'Binary')) %>%
-  mutate(actual.q3.prob.dichotomized = factor(actual.q3.prob.dichotomized, c('Graded', 'Binary'), c('False', 'True')))
-ggplot(q3.grouped.rev, aes(x = actual.q3.prob.dichotomized, y = One)) +
-  geom_col(color = 'white') +
-  geom_errorbar(aes(ymin = One - One.se,
-                    ymax = One + One.se),
+  geom_errorbar(aes(ymin = reported.h3.dichotomized.m - reported.h3.dichotomized.se,
+                    ymax = reported.h3.dichotomized.m + reported.h3.dichotomized.se),
                 width = .2, color = 'white') +
   theme_black() +
   labs(x = 'Used binary atts heuristic\n(prob > 0.5)',
        y = '% reporting\nusing heuristic')
-
-
-summary(glm(reported.q1.dichotomized ~ actual.q1.prob.dichotomized, df.demo.filt, family = 'binomial'))
-summary(lm(scale(reported.q1) ~ actual.q1.prob.dichotomized, df.demo.filt))
-summary(glm(reported.q2.dichotomized ~ actual.q2.prob.dichotomized, df.demo.filt, family = 'binomial'))
-summary(lm(scale(reported.q2) ~ actual.q2.prob.dichotomized, df.demo.filt))
-summary(glm(reported.q3.dichotomized ~ actual.q3.prob.dichotomized, df.demo.filt, family = 'binomial'))
-summary(lm(scale(reported.q3) ~ actual.q3.prob.dichotomized, df.demo.filt))
+summary(glm(reported.h1.dichotomized ~ actual.h1.prob.dichotomized, df.demo.filt, family = 'binomial'))
+summary(lm(scale(reported.h1) ~ actual.h1.prob.dichotomized, df.demo.filt))
+summary(glm(reported.h2.dichotomized ~ actual.h2.prob.dichotomized, df.demo.filt, family = 'binomial'))
+summary(lm(scale(reported.h2) ~ actual.h2.prob.dichotomized, df.demo.filt))
+summary(glm(reported.h3.dichotomized ~ actual.h3.prob.dichotomized, df.demo.filt, family = 'binomial'))
+summary(lm(scale(reported.h3) ~ actual.h3.prob.dichotomized, df.demo.filt))
 
 # combine all 3 together
 df.questions1 = df.demo.filt %>%
-  select(subject, reported.q1, reported.q2, reported.q3) %>%
-  rename(q1 = reported.q1, q2 = reported.q2, q3 = reported.q3) %>%
+  select(subject, reported.h1, reported.h2, reported.h3) %>%
+  rename(q1 = reported.h1, q2 = reported.h2, q3 = reported.h3) %>%
   pivot_longer(!subject, names_to = 'question', values_to = 'reported')
 df.questions2 = df.demo.filt %>%
-  select(subject, actual.q1.prob, actual.q2.prob, actual.q3.prob) %>%
+  select(subject, actual.h1.prob, actual.h2.prob, actual.h3.prob) %>%
   pivot_longer(!subject, values_to = 'prob')
 df.questions3 = df.demo.filt %>%
-  select(subject, reported.q1.dichotomized, reported.q2.dichotomized, reported.q3.dichotomized) %>%
+  select(subject, reported.h1.dichotomized, reported.h2.dichotomized, reported.h3.dichotomized) %>%
   pivot_longer(!subject, values_to = 'chosen')
 df.questions4 = df.demo.filt %>%
-  select(subject, actual.q1.prob.dichotomized, actual.q2.prob.dichotomized, actual.q3.prob.dichotomized) %>%
+  select(subject, actual.h1.prob.dichotomized, actual.h2.prob.dichotomized, actual.h3.prob.dichotomized) %>%
   pivot_longer(!subject, values_to = 'best.family')
 df.questions5 = df.demo.filt %>%
-  select(subject, process.accuracy.div.q1, process.accuracy.div.q2, process.accuracy.div.q3) %>%
+  select(subject, process.accuracy.div.h1, process.accuracy.div.h2, process.accuracy.div.h3) %>%
   pivot_longer(!subject, values_to = 'process.accuracy.div')
 df.questions = df.questions1
 df.questions$prob = df.questions2$prob
@@ -1531,15 +1379,9 @@ df.questions$chosen = df.questions3$chosen
 df.questions$best.family = df.questions4$best.family
 df.questions$process.accuracy.div = df.questions5$process.accuracy.div
 df.questions = df.questions %>%
-  mutate(chosen = factor(chosen,
-                         c(q1.levels[1], q2.levels[1], q3.levels[1], q1.levels[2], q2.levels[2], q3.levels[2]),
-                         c('Simple','Simple','Simple','Complex','Complex','Complex')),
-         best.family = factor(best.family,
-                              c(q1.levels[1], q2.levels[1], q3.levels[1], q1.levels[2], q2.levels[2], q3.levels[2]),
-                              c('Simple','Simple','Simple','Complex','Complex','Complex')),
-         correct = chosen == best.family)
+  mutate(correct = chosen == best.family)
 
-ggplot(df.questions, aes(x = 1-prob, y = 1-reported)) +
+ggplot(df.questions, aes(x = prob, y = reported)) +
   geom_point(color = 'gray') +
   geom_smooth(method='lm', color = 'white') +
   theme_black() +
@@ -1551,30 +1393,16 @@ m2 = lmer(scale(reported) ~ scale(prob) + (1 | subject), df.questions)
 summary(m2)
 
 q.grouped = df.questions %>% group_by(best.family) %>%
-  summarize(Complex = mean(chosen == 'Complex'),
-            Complex.se = se.prop(chosen == 'Complex'))
-ggplot(q.grouped, aes(x = best.family, y = Complex)) +
-  geom_col(color = 'white') +
-  geom_errorbar(aes(ymin = Complex - Complex.se,
-                    ymax = Complex + Complex.se),
-                width = .2, color = 'white') +
-  theme_black() +
-  labs(x = '\nProcess Questions:\nModel-fitting said complex',
-       y = '% reporting complex') +
-  geom_hline(yintercept = .5, color = 'red', linetype = 'dashed')+
-  scale_x_discrete(labels = c('False', 'True'))
-q.grouped.rev = df.questions %>% group_by(best.family) %>%
-  summarize(Simple = mean(chosen == 'Simple'),
-            Simple.se = se.prop(chosen == 'Simple'),
+  summarize(chosen.m = mean(chosen),
+            chosen.se = se.prop(chosen),
             correct.m = mean(correct),
             correct.se = se.prop(correct),
             process.accuracy.div.m = mean(process.accuracy.div),
-            process.accuracy.div.se = se(process.accuracy.div)) %>%
-  mutate(best.family = factor(best.family, c('Complex', 'Simple'), c('False', 'True')))
-ggplot(q.grouped.rev, aes(x = best.family, y = Simple)) +
+            process.accuracy.div.se = se(process.accuracy.div))
+ggplot(q.grouped, aes(x = best.family, y = chosen.m)) +
   geom_col(color = 'white') +
-  geom_errorbar(aes(ymin = Simple - Simple.se,
-                    ymax = Simple + Simple.se),
+  geom_errorbar(aes(ymin = chosen.m - chosen.se,
+                    ymax = chosen.m + chosen.se),
                 width = .2, color = 'white') +
   theme_black() +
   labs(x = 'Used heuristic',
@@ -1584,7 +1412,7 @@ summary(rePCA(m1))
 m2 = glmer(chosen ~ best.family + (1 | subject), df.questions, family = 'binomial')
 summary(m2)
 
-ggplot(q.grouped.rev, aes(x = best.family, y = correct.m)) +
+ggplot(q.grouped, aes(x = best.family, y = correct.m)) +
   geom_col(color = 'white') +
   geom_errorbar(aes(ymin = correct.m - correct.se,
                     ymax = correct.m + correct.se),
@@ -1592,7 +1420,7 @@ ggplot(q.grouped.rev, aes(x = best.family, y = correct.m)) +
   theme_black() +
   labs(x = 'Used heuristic',
        y = '% reporting correctly') 
-ggplot(q.grouped.rev, aes(x = best.family, y = process.accuracy.div.m)) +
+ggplot(q.grouped, aes(x = best.family, y = process.accuracy.div.m)) +
   geom_col(color = 'white') +
   geom_errorbar(aes(ymin = process.accuracy.div.m - process.accuracy.div.se,
                     ymax = process.accuracy.div.m + process.accuracy.div.se),
@@ -1606,12 +1434,12 @@ m2 = glmer(correct ~ best.family + (1 | subject), df.questions, family = 'binomi
 summary(m2)
 
 ## % chosen correctly
-features.graph = df.demo.filt %>% select(subject,process.accuracy.q1.dichotomized, process.accuracy.q2.dichotomized, process.accuracy.q3.dichotomized, process.accuracy.model.dichotomized) %>%
+features.graph = df.demo.filt %>% select(subject,process.accuracy.h1.dichotomized, process.accuracy.h2.dichotomized, process.accuracy.h3.dichotomized, process.accuracy.model.dichotomized) %>%
   pivot_longer(!subject) %>%
   group_by(name) %>%
   summarize(val = mean(value,na.rm=T),
             val.se = se(value)) %>%
-  mutate(name = factor(name, c('process.accuracy.q1.dichotomized', 'process.accuracy.q2.dichotomized', 'process.accuracy.q3.dichotomized', 'process.accuracy.model.dichotomized')))
+  mutate(name = factor(name, c('process.accuracy.h1.dichotomized', 'process.accuracy.h2.dichotomized', 'process.accuracy.h3.dichotomized', 'process.accuracy.model.dichotomized')))
 ggplot(features.graph, aes(x = name, y = val)) +
   geom_col(color='white') +
   geom_errorbar(aes(ymin = val - val.se, ymax = val + val.se), width = .2, color = 'white') +
@@ -1623,27 +1451,27 @@ ggplot(features.graph, aes(x = name, y = val)) +
 
 get.ci.prop(df.demo.filt$process.accuracy.model.dichotomized)
 
-get.ci.prop(df.demo.filt$process.accuracy.q1.dichotomized)
-get.ci.prop(df.demo.filt$process.accuracy.q2.dichotomized)
-get.ci.prop(df.demo.filt$process.accuracy.q3.dichotomized)
+get.ci.prop(df.demo.filt$process.accuracy.h1.dichotomized)
+get.ci.prop(df.demo.filt$process.accuracy.h2.dichotomized)
+get.ci.prop(df.demo.filt$process.accuracy.h3.dichotomized)
 
 # by question
 num.subj.filt = nrow(df.demo.filt)
-q1.heatmap = df.demo.filt %>%
-  group_by(actual.q1.prob.dichotomized2, reported.q1.dichotomized2) %>%
+h1.heatmap = df.demo.filt %>%
+  group_by(actual.h1.prob.dichotomized, reported.h1.dichotomized) %>%
   summarize(num = n() / num.subj.filt * 100)
-q2.heatmap = df.demo.filt %>%
-  group_by(actual.q2.prob.dichotomized2, reported.q2.dichotomized2) %>%
+h2.heatmap = df.demo.filt %>%
+  group_by(actual.h2.prob.dichotomized, reported.h2.dichotomized) %>%
   summarize(num = n() / num.subj.filt * 100)
-q3.heatmap = df.demo.filt %>%
-  group_by(actual.q3.prob.dichotomized2, reported.q3.dichotomized2) %>%
+h3.heatmap = df.demo.filt %>%
+  group_by(actual.h3.prob.dichotomized, reported.h3.dichotomized) %>%
   summarize(num = n() / num.subj.filt * 100)
 
-summary(lm(process.accuracy.div.q2 ~ process.accuracy.div.q1, df.demo.filt))
-summary(lm(process.accuracy.div.q3 ~ process.accuracy.div.q1 + actual.q1.prob, df.demo.filt))
-summary(lm(process.accuracy.div.q3 ~ process.accuracy.div.q2 + actual.q2.prob, df.demo.filt))
+summary(lm(process.accuracy.div.h2 ~ process.accuracy.div.h1, df.demo.filt))
+summary(lm(process.accuracy.div.h3 ~ process.accuracy.div.h1 + actual.h1.prob, df.demo.filt))
+summary(lm(process.accuracy.div.h3 ~ process.accuracy.div.h2 + actual.h2.prob, df.demo.filt))
 
-ggplot(q1.heatmap, aes(x = actual.q1.prob.dichotomized2, y = reported.q1.dichotomized2,
+ggplot(h1.heatmap, aes(x = actual.h1.prob.dichotomized, y = reported.h1.dichotomized,
                        fill = num)) +
   geom_tile() +
   labs(x = 'Used heuristic', y = 'Reported using heuristic') +
@@ -1652,7 +1480,7 @@ ggplot(q1.heatmap, aes(x = actual.q1.prob.dichotomized2, y = reported.q1.dichoto
   geom_text(aes(label = paste0(round(num), '%')), color = "black", size = 4) +
   theme_black() +
   scale_fill_gradient(low = "white", high = "red")
-ggplot(q2.heatmap, aes(x = actual.q2.prob.dichotomized2, y = reported.q2.dichotomized2,
+ggplot(h2.heatmap, aes(x = actual.h2.prob.dichotomized, y = reported.h2.dichotomized,
                        fill = num)) +
   geom_tile() +
   labs(x = 'Used heuristic', y = 'Reported using heuristic') +
@@ -1661,7 +1489,7 @@ ggplot(q2.heatmap, aes(x = actual.q2.prob.dichotomized2, y = reported.q2.dichoto
   geom_text(aes(label = paste0(round(num), '%')), color = "black", size = 4) +
   theme_black() +
   scale_fill_gradient(low = "white", high = "red")
-ggplot(q3.heatmap, aes(x = actual.q3.prob.dichotomized2, y = reported.q3.dichotomized2,
+ggplot(h3.heatmap, aes(x = actual.h3.prob.dichotomized, y = reported.h3.dichotomized,
                        fill = num)) +
   geom_tile() +
   labs(x = 'Used heuristic', y = 'Reported using heuristic') +
@@ -1672,40 +1500,27 @@ ggplot(q3.heatmap, aes(x = actual.q3.prob.dichotomized2, y = reported.q3.dichoto
   scale_fill_gradient(low = "white", high = "red")
 
 ## look at stuff by model
-summary(lm(actual.model.r2 ~ actual.model.fac, data = df.demo.filt))
+summary(lm(actual.model.loo.readable ~ actual.model.fac, data = df.demo.filt))
 summary(lm(consistency1 ~ actual.model.fac, df.demo.filt)) 
 summary(lm(consistency2 ~ actual.model.fac, df.demo.filt)) 
 
 df.demo.filt.model = df.demo.filt %>% group_by(actual.model.fac) %>%
-  summarize(actual.model.r2.m = mean(actual.model.r2),
-            actual.model.r2.se = se(actual.model.r2),
+  summarize(actual.model.loo.readable.m = mean(actual.model.loo.readable),
+            actual.model.loo.readable.se = se(actual.model.loo.readable),
             consistency1.m = mean(consistency1),
             consistency1.se = se(consistency1),
             consistency2.m = mean(consistency2),
             consistency2.se = se(consistency2),
             weight.accuracy.averaged.m = mean(weight.accuracy.averaged),
             weight.accuracy.averaged.se = se(weight.accuracy.averaged),
-            process.accuracy.model.prob.m = mean(process.accuracy.model.prob),
-            process.accuracy.model.prob.se = se(process.accuracy.model.prob),
-            chose.process.accuracy.model.dichotomized.m = mean(process.accuracy.model.dichotomized),
-            chose.process.accuracy.model.dichotomized.se = se.prop(process.accuracy.model.dichotomized))
-ggplot(df.demo.filt.model, aes(x = best.model.fac, y = best.model.ll.magnitude.m)) +
+            process.accuracy.model.relprob.m = mean(process.accuracy.model.relprob),
+            process.accuracy.model.relprob.se = se(process.accuracy.model.relprob),
+            process.accuracy.model.dichotomized.m = mean(process.accuracy.model.dichotomized),
+            process.accuracy.model.dichotomized.se = se.prop(process.accuracy.model.dichotomized))
+ggplot(df.demo.filt.model, aes(x = actual.model.fac, y = actual.model.loo.readable.m)) +
   geom_point(size = 5) +
-  geom_errorbar(aes(ymin = best.model.ll.magnitude.m - best.model.ll.magnitude.se,
-                    ymax = best.model.ll.magnitude.m + best.model.ll.magnitude.se))
-ggplot(df.demo.filt.model, aes(x = best.model.fac, y = sd.model.ll.m)) +
-  geom_point(size = 5) +
-  geom_errorbar(aes(ymin = sd.model.ll.m - sd.model.ll.se,
-                    ymax = sd.model.ll.m + sd.model.ll.se))
-ggplot(df.demo.filt.model, aes(x = best.model.fac, y = consistency2.m)) +
-  geom_point(size = 5) +
-  geom_errorbar(aes(ymin = consistency2.m - consistency2.se,
-                    ymax = consistency2.m + consistency2.se))
-ggplot(df.demo.filt.model, aes(x = actual.model.fac, y = chose.process.accuracy.model.dichotomized.m)) +
-  geom_col() +
-  geom_errorbar(aes(ymin = chose.process.accuracy.model.dichotomized.m - chose.process.accuracy.model.dichotomized.se,
-                    ymax = chose.process.accuracy.model.dichotomized.m + chose.process.accuracy.model.dichotomized.se))
-
+  geom_errorbar(aes(ymin = actual.model.loo.readable.m - actual.model.loo.readable.se,
+                    ymax = actual.model.loo.readable.m + actual.model.loo.readable.se))
 
 # Weight awareness --------------------------------------------------------
 
@@ -1760,7 +1575,7 @@ for (i in 1:length(rand.errs)) {
 
 ggplot(df.demo.filt, aes(x = weight.accuracy.averaged)) +
   geom_histogram(color = 'gray') +
-  geom_vline(xintercept = mean(rand.errs), color = 'gray') +
+  #geom_vline(xintercept = mean(rand.errs), color = 'gray') +
   geom_vline(xintercept = mean(df.demo.filt$weight.accuracy.averaged, na.rm = T), color = 'red') +
   geom_vline(xintercept = mean(df.demo.filt$weight.accuracy.averaged, na.rm = T)+se(df.demo.filt$weight.accuracy.averaged), color = 'red', linetype = 'dashed') +
   geom_vline(xintercept = mean(df.demo.filt$weight.accuracy.averaged, na.rm = T)-se(df.demo.filt$weight.accuracy.averaged), color = 'red', linetype = 'dashed') +
@@ -1825,57 +1640,57 @@ ggplot(test, aes(x = actual.model.fac, y = weight.accuracy.averaged.m)) +
 summary(lm(process.accuracy.div ~ actual.model.r2 + actual.model.fac + cc.correct.total, df.demo.filt))
 summary(lm(weight.accuracy.averaged ~ actual.model.r2 + actual.model.fac + cc.correct.total, df.demo.filt))
 
-test = df.demo.filt %>% group_by(actual.q1.prob.dichotomized2) %>%
-  summarize(process.accuracy.div.m = mean(process.accuracy.div.q1),
-            process.accuracy.div.se = se(process.accuracy.div.q1),
-            process.accuracy.q1.dichotomized.m = mean(process.accuracy.q1.dichotomized),
-            process.accuracy.q1.dichotomized.se = se.prop(process.accuracy.q1.dichotomized))
-ggplot(test, aes(x = actual.q1.prob.dichotomized2, y = process.accuracy.div.m)) +
+test = df.demo.filt %>% group_by(actual.h1.prob.dichotomized2) %>%
+  summarize(process.accuracy.div.m = mean(process.accuracy.div.h1),
+            process.accuracy.div.se = se(process.accuracy.div.h1),
+            process.accuracy.h1.dichotomized.m = mean(process.accuracy.h1.dichotomized),
+            process.accuracy.h1.dichotomized.se = se.prop(process.accuracy.h1.dichotomized))
+ggplot(test, aes(x = actual.h1.prob.dichotomized2, y = process.accuracy.div.m)) +
   geom_col(color = 'white') +
   geom_errorbar(aes(ymin = process.accuracy.div.m - process.accuracy.div.se,
                     ymax = process.accuracy.div.m + process.accuracy.div.se), color = 'white', width = .2) +
   theme_black() +
   labs(x = 'Used heuristic?', y = 'Heuristic error')
-ggplot(test, aes(x = actual.q1.prob.dichotomized2, y = process.accuracy.q1.dichotomized.m)) +
+ggplot(test, aes(x = actual.h1.prob.dichotomized2, y = process.accuracy.h1.dichotomized.m)) +
   geom_col(color = 'white') +
-  geom_errorbar(aes(ymin = process.accuracy.q1.dichotomized.m - process.accuracy.q1.dichotomized.se,
-                    ymax = process.accuracy.q1.dichotomized.m + process.accuracy.q1.dichotomized.se), color = 'white', width = .2) +
+  geom_errorbar(aes(ymin = process.accuracy.h1.dichotomized.m - process.accuracy.h1.dichotomized.se,
+                    ymax = process.accuracy.h1.dichotomized.m + process.accuracy.h1.dichotomized.se), color = 'white', width = .2) +
   theme_black() +
   labs(x = 'Used heuristic', y = '% who got it right')
 
-test2 = df.demo.filt %>% group_by(actual.q2.prob.dichotomized2) %>%
-  summarize(process.accuracy.div.m = mean(process.accuracy.div.q2),
-            process.accuracy.div.se = se(process.accuracy.div.q2),
-            process.accuracy.q2.dichotomized.m = mean(process.accuracy.q2.dichotomized),
-            process.accuracy.q2.dichotomized.se = se.prop(process.accuracy.q2.dichotomized))
-ggplot(test2, aes(x = actual.q2.prob.dichotomized2, y = process.accuracy.div.m)) +
+test2 = df.demo.filt %>% group_by(actual.h2.prob.dichotomized2) %>%
+  summarize(process.accuracy.div.m = mean(process.accuracy.div.h2),
+            process.accuracy.div.se = se(process.accuracy.div.h2),
+            process.accuracy.h2.dichotomized.m = mean(process.accuracy.h2.dichotomized),
+            process.accuracy.h2.dichotomized.se = se.prop(process.accuracy.h2.dichotomized))
+ggplot(test2, aes(x = actual.h2.prob.dichotomized2, y = process.accuracy.div.m)) +
   geom_col(color = 'white') +
   geom_errorbar(aes(ymin = process.accuracy.div.m - process.accuracy.div.se,
                     ymax = process.accuracy.div.m + process.accuracy.div.se), color = 'white', width = .2) +
   theme_black() +
   labs(x = 'Used heuristic?', y = 'Heuristic error')
-ggplot(test2, aes(x = actual.q2.prob.dichotomized2, y = process.accuracy.q2.dichotomized.m)) +
+ggplot(test2, aes(x = actual.h2.prob.dichotomized2, y = process.accuracy.h2.dichotomized.m)) +
   geom_col(color = 'white') +
-  geom_errorbar(aes(ymin = process.accuracy.q2.dichotomized.m - process.accuracy.q2.dichotomized.se,
-                    ymax = process.accuracy.q2.dichotomized.m + process.accuracy.q2.dichotomized.se), color = 'white', width = .2) +
+  geom_errorbar(aes(ymin = process.accuracy.h2.dichotomized.m - process.accuracy.h2.dichotomized.se,
+                    ymax = process.accuracy.h2.dichotomized.m + process.accuracy.h2.dichotomized.se), color = 'white', width = .2) +
   theme_black() +
   labs(x = 'Used heuristic', y = '% who got it right')
 
-test3 = df.demo.filt %>% group_by(actual.q3.prob.dichotomized2) %>%
-  summarize(process.accuracy.div.m = mean(process.accuracy.div.q3),
-            process.accuracy.div.se = se(process.accuracy.div.q3),
-            process.accuracy.q3.dichotomized.m = mean(process.accuracy.q3.dichotomized),
-            process.accuracy.q3.dichotomized.se = se.prop(process.accuracy.q3.dichotomized))
-ggplot(test3, aes(x = actual.q3.prob.dichotomized2, y = process.accuracy.div.m)) +
+test3 = df.demo.filt %>% group_by(actual.h3.prob.dichotomized2) %>%
+  summarize(process.accuracy.div.m = mean(process.accuracy.div.h3),
+            process.accuracy.div.se = se(process.accuracy.div.h3),
+            process.accuracy.h3.dichotomized.m = mean(process.accuracy.h3.dichotomized),
+            process.accuracy.h3.dichotomized.se = se.prop(process.accuracy.h3.dichotomized))
+ggplot(test3, aes(x = actual.h3.prob.dichotomized2, y = process.accuracy.div.m)) +
   geom_col(color = 'white') +
   geom_errorbar(aes(ymin = process.accuracy.div.m - process.accuracy.div.se,
                     ymax = process.accuracy.div.m + process.accuracy.div.se), color = 'white', width = .2) +
   theme_black() +
   labs(x = 'Used heuristic?', y = 'Heuristic error')
-ggplot(test3, aes(x = actual.q3.prob.dichotomized2, y = process.accuracy.q3.dichotomized.m)) +
+ggplot(test3, aes(x = actual.h3.prob.dichotomized2, y = process.accuracy.h3.dichotomized.m)) +
   geom_col(color = 'white') +
-  geom_errorbar(aes(ymin = process.accuracy.q3.dichotomized.m - process.accuracy.q3.dichotomized.se,
-                    ymax = process.accuracy.q3.dichotomized.m + process.accuracy.q3.dichotomized.se), color = 'white', width = .2) +
+  geom_errorbar(aes(ymin = process.accuracy.h3.dichotomized.m - process.accuracy.h3.dichotomized.se,
+                    ymax = process.accuracy.h3.dichotomized.m + process.accuracy.h3.dichotomized.se), color = 'white', width = .2) +
   theme_black() +
   labs(x = 'Used heuristic', y = '% who got it right')
 summary()
@@ -1897,12 +1712,12 @@ ggplot(df.demo.filt, aes(x = process.accuracy.model.dichotomized, y = weight.acc
   theme_black() +
   labs(x = 'Chose correct model?', y = 'Weight accuracy\n(with model-averaged wts)') +
   scale_y_continuous(breaks = c(0,.5,1))
-ggplot(df.demo.filt, aes(x = process.accuracy.model.relprob, y = weight.accuracy.averaged)) +
+ggplot(df.demo.filt, aes(x = process.accuracy.div, y = weight.accuracy.averaged)) +
   geom_point(color = 'gray') +
   geom_smooth(method = 'lm', color = 'white') +
   theme_black() +
   labs(x = 'Reported model BF', y = 'Weight accuracy\n(with model-averaged wts)')
-summary(lm(scale(weight.accuracy.averaged) ~ scale(process.accuracy.model.relprob) + actual.model.fac + actual.model.r2, df.demo.filt))
+summary(lm(scale(weight.accuracy.averaged) ~ scale(process.accuracy.model.relprob) + actual.model.fac + actual.model.loo.readable, df.demo.filt))
 
 # reported weights
 ggplot(df.demo.filt, aes(x = process.accuracy.model.dichotomized, y = weight.accuracy.reported)) +
@@ -2142,25 +1957,25 @@ summary(lm(scale(norm.actual) ~ process.accuracy.model.dichotomized + actual.mod
 summary(lm(scale(norm.actual) ~ scale(process.accuracy.model.relprob) + actual.model.fac + actual.model.r2, data = df.demo.filt))
 
 
-test = df.demo.filt %>% group_by(q1.correct) %>%
-  summarize(q1.norm.actual.m = mean(q1.norm.actual),
-            q1.norm.actual.se = se.prop(q1.norm.actual))
-ggplot(test, aes(x = q1.correct, y = q1.norm.actual.m)) +
+test = df.demo.filt %>% group_by(h1.correct) %>%
+  summarize(h1.norm.actual.m = mean(h1.norm.actual),
+            h1.norm.actual.se = se.prop(h1.norm.actual))
+ggplot(test, aes(x = h1.correct, y = h1.norm.actual.m)) +
   geom_point(size = 5, color = 'white') +
-  geom_errorbar(aes(ymin = q1.norm.actual.m - q1.norm.actual.se,
-                    ymax = q1.norm.actual.m + q1.norm.actual.se),
+  geom_errorbar(aes(ymin = h1.norm.actual.m - h1.norm.actual.se,
+                    ymax = h1.norm.actual.m + h1.norm.actual.se),
                 width = .2, color = 'white') +
   scale_x_discrete(labels = c('No', 'Yes')) +
   labs(x = 'Reported correct\nmodel', y = '% who actually did') +
   theme_black()
 
-test = df.demo.filt %>% group_by(q1.correct, norm.q1) %>%
-  summarize(q1.norm.actual.m = mean(q1.norm.actual),
-            q1.norm.actual.se = se.prop(q1.norm.actual))
-ggplot(test, aes(x = q1.correct, y = q1.norm.actual.m, color = norm.q1, group = norm.q1)) +
+test = df.demo.filt %>% group_by(h1.correct, norm.h1) %>%
+  summarize(h1.norm.actual.m = mean(h1.norm.actual),
+            h1.norm.actual.se = se.prop(h1.norm.actual))
+ggplot(test, aes(x = h1.correct, y = h1.norm.actual.m, color = norm.h1, group = norm.h1)) +
   geom_point(size = 5) +
-  geom_errorbar(aes(ymin = q1.norm.actual.m - q1.norm.actual.se,
-                    ymax = q1.norm.actual.m + q1.norm.actual.se),
+  geom_errorbar(aes(ymin = h1.norm.actual.m - h1.norm.actual.se,
+                    ymax = h1.norm.actual.m + h1.norm.actual.se),
                 width = .2, color = 'white') +
   scale_x_discrete(labels = c('No', 'Yes')) +
   labs(x = 'Reported correct\nmodel', y = '% who actually did') +
@@ -2342,7 +2157,7 @@ df.demo.filt.both = full_join(df.demo.filt, df.demo.filt.obs)
 df.demo.filt.both = df.demo.filt.both %>% mutate(type = factor(type, c('Original', 'Observers'), c('Original', 'Observers')))
 
 df.demo.filt.both.multiatt = df.demo.filt.both %>%
-  filter(actual.q1.prob.dichotomized == 'Multiple')
+  filter(actual.h1.prob.dichotomized == 'Multiple')
 
 ### process awareness
 ## heat map
@@ -2411,9 +2226,9 @@ ggplot(df.demo.heat.normed.obs, aes(x = actual.model.fac, y = reported.model.fac
 
 ## How good or bad were the models reported?
 
-mean.orig = mean(df.demo.filt.both$process.accuracy.model.relprob[df.demo.filt.both$type == 'Original'])
+mean.orig = mean(df.demo.filt.both$process.accuracy.model.relprob[df.demo.filt.both$type == 'Original'], na.rm = T)
 se.orig = se(df.demo.filt.both$process.accuracy.model.relprob[df.demo.filt.both$type == 'Original'])
-mean.obs = mean(df.demo.filt.both$process.accuracy.model.relprob[df.demo.filt.both$type == 'Observers'])
+mean.obs = mean(df.demo.filt.both$process.accuracy.model.relprob[df.demo.filt.both$type == 'Observers'], na.rm = T)
 se.obs = se(df.demo.filt.both$process.accuracy.model.relprob[df.demo.filt.both$type == 'Observers'])
 ggplot(df.demo.filt.both, aes(x = process.accuracy.model.relprob, fill = type, group = type)) +
   geom_histogram(color = 'white', alpha = .7, bins = 25, position = position_identity()) +
@@ -2431,11 +2246,11 @@ ggplot(df.demo.filt.both, aes(x = process.accuracy.model.relprob, fill = type, g
   theme(legend.title = element_blank())
 summary(lm(scale(process.accuracy.model.relprob) ~ type, df.demo.filt.both))
 
-mean.orig = mean(df.demo.filt.both.multiatt$process.accuracy.div[df.demo.filt.both.multiatt$type == 'Original'])
-se.orig = se(df.demo.filt.both.multiatt$process.accuracy.div[df.demo.filt.both.multiatt$type == 'Original'])
-mean.obs = mean(df.demo.filt.both.multiatt$process.accuracy.div[df.demo.filt.both.multiatt$type == 'Observers'])
-se.obs = se(df.demo.filt.both.multiatt$process.accuracy.div[df.demo.filt.both.multiatt$type == 'Observers'])
-ggplot(df.demo.filt.both.multiatt, aes(x = process.accuracy.div, fill = type, group = type)) +
+mean.orig = mean(df.demo.filt.both$process.accuracy.div[df.demo.filt.both$type == 'Original'], na.rm = T)
+se.orig = se(df.demo.filt.both$process.accuracy.div[df.demo.filt.both$type == 'Original'])
+mean.obs = mean(df.demo.filt.both$process.accuracy.div[df.demo.filt.both$type == 'Observers'], na.rm = T)
+se.obs = se(df.demo.filt.both$process.accuracy.div[df.demo.filt.both$type == 'Observers'])
+ggplot(df.demo.filt.both, aes(x = process.accuracy.div, fill = type, group = type)) +
   geom_histogram(color = 'white', alpha = .7, bins = 25, position = position_identity()) +
   labs(x = "\nHeuristic error",
        y = "# of subjects") +
@@ -2456,36 +2271,36 @@ t.test(df.demo.filt$process.accuracy.div,
 ## by feature
 
 # continuous version
-ggplot(df.demo.filt.both, aes(x = actual.q1.prob, y = reported.q1, color = type, group = type)) +
+ggplot(df.demo.filt.both, aes(x = actual.h1.prob, y = reported.h1, color = type, group = type)) +
   geom_point() +
   geom_smooth(method='lm') +
   theme_black() +
   labs(x = '\nProcess Question 1:\nModel-fitted probability of using\nmultiple atts (vs. a single att)',
        y = 'Reported probability of using\nmultiple atts (vs. a single att)') +
   scale_color_brewer(palette = 'Set1')
-summary(lm(scale(reported.q1) ~ scale(actual.q1.prob) * type, df.demo.filt.both))
-ggplot(df.demo.filt.both, aes(x = actual.q2.prob, y = reported.q2, color = type, group = type)) +
+summary(lm(scale(reported.h1) ~ scale(actual.h1.prob) * type, df.demo.filt.both))
+ggplot(df.demo.filt.both, aes(x = actual.h2.prob, y = reported.h2, color = type, group = type)) +
   geom_point() +
   geom_smooth(method='lm') +
   theme_black() +
   labs(x = '\nProcess Question 2:\nModel-fitted probability of using\ngraded weights (vs. binary weights)',
        y = 'Reported probability of using\ngraded weights (vs. binary weights)') +
   scale_color_brewer(palette = 'Set1')
-summary(lm(scale(reported.q2) ~ scale(actual.q2.prob) * type, df.demo.filt.both))
-ggplot(df.demo.filt.both, aes(x = actual.q3.prob, y = reported.q3, color = type, group = type)) +
+summary(lm(scale(reported.h2) ~ scale(actual.h2.prob) * type, df.demo.filt.both))
+ggplot(df.demo.filt.both, aes(x = actual.h3.prob, y = reported.h3, color = type, group = type)) +
   geom_point() +
   geom_smooth(method='lm') +
   theme_black() +
   labs(x = '\nProcess Question 3:\nModel-fitted probability of using\ngraded att values (vs. binary att values)',
        y = 'Reported probability of using\ngraded att values (vs. binary att values)') +
   scale_color_brewer(palette = 'Set1')
-summary(lm(scale(reported.q3) ~ scale(actual.q3.prob) * type, df.demo.filt.both))
+summary(lm(scale(reported.h3) ~ scale(actual.h3.prob) * type, df.demo.filt.both))
 
 # dichotomized version
-q1.grouped = df.demo.filt.both %>% group_by(type, actual.q1.prob.dichotomized) %>%
-  summarize(Multiple = mean(reported.q1.dichotomized == 'Multiple'),
-            Multiple.se = se.prop(reported.q1.dichotomized == 'Multiple'))
-ggplot(q1.grouped, aes(x = actual.q1.prob.dichotomized, y = Multiple, group = type, fill = type)) +
+h1.grouped = df.demo.filt.both %>% group_by(type, actual.h1.prob.dichotomized) %>%
+  summarize(Multiple = mean(reported.h1.dichotomized == 'Multiple'),
+            Multiple.se = se.prop(reported.h1.dichotomized == 'Multiple'))
+ggplot(h1.grouped, aes(x = actual.h1.prob.dichotomized, y = Multiple, group = type, fill = type)) +
   geom_col(position = dodge, color = 'white') +
   geom_errorbar(aes(ymin = Multiple - Multiple.se,
                     ymax = Multiple + Multiple.se),
@@ -2497,12 +2312,12 @@ ggplot(q1.grouped, aes(x = actual.q1.prob.dichotomized, y = Multiple, group = ty
   geom_hline(yintercept = .5, color = 'red', linetype = 'dashed') +
   scale_fill_brewer(palette = 'Set1') +
   scale_x_discrete(labels = c('False', 'True'))
-summary(glm(reported.q1.dichotomized ~ actual.q1.prob.dichotomized * type, df.demo.filt.both, family = 'binomial'))
+summary(glm(reported.h1.dichotomized ~ actual.h1.prob.dichotomized * type, df.demo.filt.both, family = 'binomial'))
 
-q2.grouped = df.demo.filt.both %>% group_by(type, actual.q2.prob.dichotomized) %>%
-  summarize(Multiple = mean(reported.q2.dichotomized == 'Graded'),
-            Multiple.se = se.prop(reported.q2.dichotomized == 'Graded'))
-ggplot(q2.grouped, aes(x = actual.q2.prob.dichotomized, fill = type, group = type, y = Multiple)) +
+h2.grouped = df.demo.filt.both %>% group_by(type, actual.h2.prob.dichotomized) %>%
+  summarize(Multiple = mean(reported.h2.dichotomized == 'Graded'),
+            Multiple.se = se.prop(reported.h2.dichotomized == 'Graded'))
+ggplot(h2.grouped, aes(x = actual.h2.prob.dichotomized, fill = type, group = type, y = Multiple)) +
   geom_col(position = dodge, color = 'white') +
   geom_errorbar(aes(ymin = Multiple - Multiple.se,
                     ymax = Multiple + Multiple.se),
@@ -2514,12 +2329,12 @@ ggplot(q2.grouped, aes(x = actual.q2.prob.dichotomized, fill = type, group = typ
   geom_hline(yintercept = .5, color = 'red', linetype = 'dashed')+
   scale_x_discrete(labels = c('False', 'True')) +
   scale_fill_brewer(palette = 'Set1')
-summary(glm(reported.q2.dichotomized ~ actual.q2.prob.dichotomized * type, df.demo.filt.both, family = 'binomial'))
+summary(glm(reported.h2.dichotomized ~ actual.h2.prob.dichotomized * type, df.demo.filt.both, family = 'binomial'))
 
-q3.grouped = df.demo.filt.both %>% group_by(type, actual.q3.prob.dichotomized) %>%
-  summarize(Multiple = mean(reported.q3.dichotomized == 'Graded'),
-            Multiple.se = se.prop(reported.q3.dichotomized == 'Graded'))
-ggplot(q3.grouped, aes(x = actual.q3.prob.dichotomized, fill = type, group = type, y = Multiple)) +
+h3.grouped = df.demo.filt.both %>% group_by(type, actual.h3.prob.dichotomized) %>%
+  summarize(Multiple = mean(reported.h3.dichotomized == 'Graded'),
+            Multiple.se = se.prop(reported.h3.dichotomized == 'Graded'))
+ggplot(h3.grouped, aes(x = actual.h3.prob.dichotomized, fill = type, group = type, y = Multiple)) +
   geom_col(color = 'white', position = dodge) +
   geom_errorbar(aes(ymin = Multiple - Multiple.se,
                     ymax = Multiple + Multiple.se),
@@ -2531,35 +2346,28 @@ ggplot(q3.grouped, aes(x = actual.q3.prob.dichotomized, fill = type, group = typ
   geom_hline(yintercept = .5, color = 'red', linetype = 'dashed')+
   scale_x_discrete(labels = c('False', 'True'))+
   scale_fill_brewer(palette = 'Set1')
-summary(glm(reported.q3.dichotomized ~ actual.q3.prob.dichotomized * type, df.demo.filt.both, family = 'binomial'))
+summary(glm(reported.h3.dichotomized ~ actual.h3.prob.dichotomized * type, df.demo.filt.both, family = 'binomial'))
 
 # combine all 3 together
-df.questions1 = df.demo.filt.both.multiatt %>%
-  select(subject, type, reported.q1, reported.q2, reported.q3) %>%
-  rename(q1 = reported.q1, q2 = reported.q2, q3 = reported.q3) %>%
+df.questions1 = df.demo.filt.both %>%
+  select(subject, type, reported.h1, reported.h2, reported.h3) %>%
+  rename(q1 = reported.h1, q2 = reported.h2, q3 = reported.h3) %>%
   pivot_longer(!c(subject, type), names_to = 'question', values_to = 'reported')
-df.questions2 = df.demo.filt.both.multiatt %>%
-  select(subject, type, actual.q1.prob, actual.q2.prob, actual.q3.prob) %>%
+df.questions2 = df.demo.filt.both %>%
+  select(subject, type, actual.h1.prob, actual.h2.prob, actual.h3.prob) %>%
   pivot_longer(!c(subject, type), values_to = 'prob')
-df.questions3 = df.demo.filt.both.multiatt %>%
-  select(subject, type, reported.q1.dichotomized, reported.q2.dichotomized, reported.q3.dichotomized) %>%
+df.questions3 = df.demo.filt.both %>%
+  select(subject, type, reported.h1.dichotomized, reported.h2.dichotomized, reported.h3.dichotomized) %>%
   pivot_longer(!c(subject, type), values_to = 'chosen')
-df.questions4 = df.demo.filt.both.multiatt %>%
-  select(subject, type, actual.q1.prob.dichotomized, actual.q2.prob.dichotomized, actual.q3.prob.dichotomized) %>%
+df.questions4 = df.demo.filt.both %>%
+  select(subject, type, actual.h1.prob.dichotomized, actual.h2.prob.dichotomized, actual.h3.prob.dichotomized) %>%
   pivot_longer(!c(subject, type), values_to = 'best.family')
 df.questions = df.questions1
 df.questions$prob = df.questions2$prob
 df.questions$chosen = df.questions3$chosen
 df.questions$best.family = df.questions4$best.family
-df.questions = df.questions %>%
-  mutate(chosen = factor(chosen,
-                         c(q1.levels[1], q2.levels[1], q3.levels[1], q1.levels[2], q2.levels[2], q3.levels[2]),
-                         c('Simple','Simple','Simple','Complex','Complex','Complex')),
-         best.family = factor(best.family,
-                              c(q1.levels[1], q2.levels[1], q3.levels[1], q1.levels[2], q2.levels[2], q3.levels[2]),
-                              c('Simple','Simple','Simple','Complex','Complex','Complex')))
 
-ggplot(df.questions, aes(x = 1-prob, y = 1-reported, color = type, group = type)) +
+ggplot(df.questions, aes(x = prob, y = reported, color = type, group = type)) +
   geom_point() +
   geom_smooth(method='lm') +
   theme_black() +
@@ -2571,28 +2379,13 @@ summary(rePCA(m1))
 m2 = lmer(scale(reported) ~ scale(prob)*type + (1 | subject), df.questions)
 summary(m2)
 
-q.grouped = df.questions %>% group_by(type, best.family) %>%
-  summarize(Complex = mean(chosen == 'Complex'),
-            Complex.se = se.prop(chosen == 'Complex'))
-ggplot(q.grouped, aes(x = best.family, y = Complex, fill = type, group = type)) +
-  geom_col(color = 'white', position = dodge) +
-  geom_errorbar(aes(ymin = Complex - Complex.se,
-                    ymax = Complex + Complex.se),
-                width = .2, color = 'white', position = dodge) +
-  theme_black() +
-  labs(x = '\nProcess Questions:\nModel-fitting said complex',
-       y = '% reporting complex') +
-  geom_hline(yintercept = .5, color = 'red', linetype = 'dashed')+
-  scale_x_discrete(labels = c('False', 'True')) +
-  scale_fill_brewer(palette = 'Set1')
 q.grouped.rev = df.questions %>% group_by(type, best.family) %>%
-  summarize(Simple = mean(chosen == 'Simple'),
-            Simple.se = se.prop(chosen == 'Simple')) %>%
-  mutate(best.family = factor(best.family, c('Complex', 'Simple'), c('False', 'True')))
-ggplot(q.grouped.rev, aes(x = best.family, y = Simple, fill = type, group = type)) +
+  summarize(chosen.m = mean(chosen),
+            chosen.se = se.prop(chosen))
+ggplot(q.grouped.rev, aes(x = best.family, y = chosen.m, fill = type, group = type)) +
   geom_col(color = 'white', position = dodge) +
-  geom_errorbar(aes(ymin = Simple - Simple.se,
-                    ymax = Simple + Simple.se),
+  geom_errorbar(aes(ymin = chosen.m - chosen.se,
+                    ymax = chosen.m + chosen.se),
                 width = .2, color = 'white', position = dodge) +
   theme_black() +
   labs(x = 'Used heuristic',
@@ -2606,12 +2399,12 @@ summary(m2)
 
 
 # % chosen correctly
-features.graph = df.demo.filt.both %>% select(subject,type,process.accuracy.q1.dichotomized, process.accuracy.q2.dichotomized, process.accuracy.q3.dichotomized, process.accuracy.model.dichotomized) %>%
+features.graph = df.demo.filt.both %>% select(subject,type,process.accuracy.h1.dichotomized, process.accuracy.h2.dichotomized, process.accuracy.h3.dichotomized, process.accuracy.model.dichotomized) %>%
   pivot_longer(!c(subject,type)) %>%
   group_by(type, name) %>%
   summarize(val = mean(value,na.rm=T),
             val.se = se(value)) %>%
-  mutate(name = factor(name, c('process.accuracy.q1.dichotomized', 'process.accuracy.q2.dichotomized', 'process.accuracy.q3.dichotomized', 'process.accuracy.model.dichotomized')))
+  mutate(name = factor(name, c('process.accuracy.h1.dichotomized', 'process.accuracy.h2.dichotomized', 'process.accuracy.h3.dichotomized', 'process.accuracy.model.dichotomized')))
 ggplot(features.graph %>% filter(name == 'process.accuracy.model.dichotomized'), aes(x = name, y = val, fill = type, group = type)) +
   geom_col(color='white', position = dodge) +
   geom_errorbar(aes(ymin = val - val.se, ymax = val + val.se), width = .2, color = 'white', position = dodge) +
@@ -2623,23 +2416,10 @@ ggplot(features.graph %>% filter(name == 'process.accuracy.model.dichotomized'),
   scale_x_discrete(labels = c('')) +
   scale_fill_brewer(palette = 'Set1')
 
-summary(glm(process.accuracy.q1.dichotomized ~ type, df.demo.filt.both, family = 'binomial'))
-summary(glm(process.accuracy.q2.dichotomized ~ type, df.demo.filt.both, family = 'binomial'))
-summary(glm(process.accuracy.q3.dichotomized ~ type, df.demo.filt.both, family = 'binomial'))
-summary(glm(process.accuracy.qs.dichotomized ~ type, df.demo.filt.both, family = 'binomial'))
+summary(glm(process.accuracy.h1.dichotomized ~ type, df.demo.filt.both, family = 'binomial'))
+summary(glm(process.accuracy.h2.dichotomized ~ type, df.demo.filt.both, family = 'binomial'))
+summary(glm(process.accuracy.h3.dichotomized ~ type, df.demo.filt.both, family = 'binomial'))
 summary(glm(process.accuracy.model.dichotomized ~ type, df.demo.filt.both, family = 'binomial'))
-
-test = df.demo.filt.both %>% group_by(type) %>%
-  summarize(process.accuracy.qs.dichotomized.m = mean(process.accuracy.qs.dichotomized),
-            process.accuracy.qs.dichotomized.se = se(process.accuracy.qs.dichotomized))
-ggplot(test, aes(x = type, y = process.accuracy.qs.dichotomized.m, fill = type, group = type)) +
-  geom_col(color='white', position = dodge) +
-  geom_errorbar(aes(ymin = process.accuracy.qs.dichotomized.m - process.accuracy.qs.dichotomized.se,
-                    ymax = process.accuracy.qs.dichotomized.m + process.accuracy.qs.dichotomized.se), width = .2, color = 'white', position = dodge) +
-  theme_black() +
-  labs(x = '', y = '% choosing\ncorrect model') +
-  scale_x_discrete(labels = c('')) +
-  scale_fill_brewer(palette = 'Set1')
 
 ## weight accuracy
 
@@ -2775,18 +2555,18 @@ summary(m.mods3)
 # do matching shit
 test = df.demo.filt.both %>% filter(!is.na(target_id_num)) %>% count(target_id_num)
 
-df.demo.filt$q1.correct.obs = NA
+df.demo.filt$h1.correct.obs = NA
 for (i in 1:nrow(df.demo.filt)) {
   subj = df.demo.filt$subject[i]
   df.obs.cur = df.demo.filt.obs %>% filter(target_id == subj)
   if (nrow(df.obs.cur) > 0) {
-    df.demo.filt$q1.correct.obs[i] = mean(df.obs.cur$q1.correct)
+    df.demo.filt$h1.correct.obs[i] = mean(df.obs.cur$h1.correct)
   }
 }
 
-mean(df.demo.filt$q1.correct)
-mean(df.demo.filt$q1.correct.obs, na.rm = T)
-wilcox.test(as.numeric(df.demo.filt$q1.correct), df.demo.filt$q1.correct.obs, paired = T)
+mean(df.demo.filt$h1.correct)
+mean(df.demo.filt$h1.correct.obs, na.rm = T)
+wilcox.test(as.numeric(df.demo.filt$h1.correct), df.demo.filt$h1.correct.obs, paired = T)
 
 # Do split-half analyses --------------------------------------------------
 
@@ -2819,30 +2599,30 @@ df.attributes.filt.splithalf = df.attributes.filt.splithalf %>% mutate(type = fa
 
 df.demo.filt.splithalf.grp = df.demo.filt.splithalf %>%
   group_by(type) %>%
-  summarize(actual.q1.prob.m = mean(actual.q1.prob), actual.q1.prob.se = se(actual.q1.prob),
-            actual.q2.prob.m = mean(actual.q2.prob), actual.q2.prob.se = se(actual.q2.prob),
-            actual.q3.prob.m = mean(actual.q3.prob), actual.q3.prob.se = se(actual.q3.prob),
-            actual.qs.prob.m = mean(c(actual.q1.prob.m, actual.q2.prob.m, actual.q3.prob.m)),
+  summarize(actual.h1.prob.m = mean(actual.h1.prob), actual.h1.prob.se = se(actual.h1.prob),
+            actual.h2.prob.m = mean(actual.h2.prob), actual.h2.prob.se = se(actual.h2.prob),
+            actual.h3.prob.m = mean(actual.h3.prob), actual.h3.prob.se = se(actual.h3.prob),
+            actual.qs.prob.m = mean(c(actual.h1.prob.m, actual.h2.prob.m, actual.h3.prob.m)),
             process.accuracy.div.m = mean(process.accuracy.div), process.accuracy.div.se = se(process.accuracy.div),
             weight.accuracy.averaged.m = mean(weight.accuracy.averaged), weight.accuracy.averaged.se = se(weight.accuracy.averaged),
   )
 
 # heuristic questions
-splithalf.actual.q1.prob = df.demo.filt.splithalf %>%
-  select(subject, type, actual.q1.prob) %>%
+splithalf.actual.h1.prob = df.demo.filt.splithalf %>%
+  select(subject, type, actual.h1.prob) %>%
   pivot_wider(names_from = type,
-            values_from = actual.q1.prob)
-splithalf.actual.q2.prob = df.demo.filt.splithalf %>%
-  select(subject, type, actual.q2.prob) %>%
+            values_from = actual.h1.prob)
+splithalf.actual.h2.prob = df.demo.filt.splithalf %>%
+  select(subject, type, actual.h2.prob) %>%
   pivot_wider(names_from = type,
-              values_from = actual.q2.prob)
-splithalf.actual.q3.prob = df.demo.filt.splithalf %>%
-  select(subject, type, actual.q3.prob) %>%
+              values_from = actual.h2.prob)
+splithalf.actual.h3.prob = df.demo.filt.splithalf %>%
+  select(subject, type, actual.h3.prob) %>%
   pivot_wider(names_from = type,
-              values_from = actual.q3.prob)
-splithalf.actual.qs.prob = full_join(full_join(splithalf.actual.q1.prob,
-                                     splithalf.actual.q2.prob),
-                                     splithalf.actual.q3.prob)
+              values_from = actual.h3.prob)
+splithalf.actual.qs.prob = full_join(full_join(splithalf.actual.h1.prob,
+                                     splithalf.actual.h2.prob),
+                                     splithalf.actual.h3.prob)
 
 ggplot(splithalf.actual.qs.prob, aes(x = Half1, y = Half2)) +
   geom_point(color = 'white') +
@@ -2926,20 +2706,20 @@ subj.both = intersect(df.demo.movies$subject, df.demo.rand$subject)
 df.demo.movies.trt = df.demo.movies %>% filter(subject %in% subj.both) %>%
   dplyr::select(subject, weight.accuracy.averaged,
          process.accuracy.model.dichotomized, process.accuracy.model.relprob,
-         process.accuracy.q1, process.accuracy.q2, process.accuracy.q3, process.accuracy.qs,
+         process.accuracy.h1, process.accuracy.h2, process.accuracy.h3, process.accuracy.qs,
          which_version_first) %>%
   mutate(which_version = 'movies')
 df.demo.rand.trt = df.demo.rand %>% filter(subject %in% subj.both) %>%
   dplyr::select(subject, weight.accuracy.averaged,
                 process.accuracy.model.dichotomized, process.accuracy.model.relprob,
-                process.accuracy.q1, process.accuracy.q2, process.accuracy.q3, process.accuracy.qs,
+                process.accuracy.h1, process.accuracy.h2, process.accuracy.h3, process.accuracy.qs,
                 which_version_first) %>%
   mutate(which_version = 'rand')
 
 df.demo.trt = bind_rows(df.demo.movies.trt, df.demo.rand.trt)
 df.demo.trt.wide = df.demo.trt %>% pivot_wider(names_from = which_version, values_from = c(weight.accuracy.averaged,
                                                                                            process.accuracy.model.dichotomized, process.accuracy.model.relprob,
-                                                                                           process.accuracy.q1, process.accuracy.q2, process.accuracy.q3, process.accuracy.qs,))
+                                                                                           process.accuracy.h1, process.accuracy.h2, process.accuracy.h3, process.accuracy.qs,))
 
 cor.test(df.demo.movies.trt$weight.accuracy.averaged, df.demo.rand.trt$weight.accuracy.averaged)
 ggplot(df.demo.trt.wide, aes(x = weight.accuracy.averaged_movies, y = weight.accuracy.averaged_rand)) +

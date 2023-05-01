@@ -12,7 +12,7 @@ if (!require('pacman')) {
   require('pacman')
 }
 
-p_load(rstan, bridgesampling, iterpc, matricks, loo)
+p_load(rstan, bridgesampling, iterpc, matricks, loo, matrixStats)
 
 options(mc.cores = 1)
 rstan_options(auto_write = TRUE)
@@ -127,13 +127,36 @@ get_all_diagnostics = function(fit) {
   return(output)
 }
 
+# From "aaronjg", https://github.com/stan-dev/rstan/issues/426
+cleanObject <- function(object,pars){
+  pars <- c(pars,'lp__')
+  nn <- paste0('^',pars,'(\\[|$)',collapse="|")
+  ids <-  grep(nn,  object@sim$fnames_oi)
+  ids.2 <- which(names(object@par_dims) %in% pars)
+  for(i in 1:4){
+    a <- attributes(object@sim$samples[[i]])
+    x <- object@sim$samples[[i]][ids]
+    for(j in c('names','inits','mean_pars'))
+      a[[j]] <- a[[j]][ids]
+    attributes(x) <- a
+    object@sim$samples[[i]] <- x
+  }
+  object@par_dims <- object@par_dims[ids.2]
+  object@sim$dims_oi <-   object@sim$dims_oi[ids.2]  
+  object@sim$pars_oi<- object@sim$pars_oi[ids.2]
+  object@sim$fnames_oi <-  object@sim$fnames_oi[ids]
+  object@sim$n_flatnames <- length(object@sim$fnames_oi)
+  object
+}
+
+# creates posteriors
 post_creator = function(u_num, u) {
   return(function(x) {
     dgamma(x, 4) * rowProds(exp(x %*% t(u_num)) / (1+exp(x %*% t(u))))
   })
 }
 
-fitSubj = function(stan_model_obj, option_diffs, choices, binary_atts, binary_wts, wts_combinations_list = NULL) {
+fitSubj = function(stan_model_obj, option_diffs, choices, binary_atts, binary_wts, wts_combinations_list = NULL, full_output = FALSE) {
   if (binary_atts) {option_diffs = sign(option_diffs)}
   
   # Fit the model
@@ -147,17 +170,13 @@ fitSubj = function(stan_model_obj, option_diffs, choices, binary_atts, binary_wt
                            iter = numIter,
                            chains = numChains,
                            seed = stan.seed,
-                           refresh = 0)
+                           refresh = 0,
+                           save_warmup = F)
       best_params = summary(stan_fit, probs = 0.5, pars = c('inv_temp', 'weights', 'lp__'))$summary[,1]
       lme = bridge_sampler(stan_fit, silent = T)$logml
-      stan_samples = NULL#extract(stan_fit, pars = c('inv_temp', 'weights', 'lp__'))
       stan_diagnostics = get_all_diagnostics(stan_fit)
       stan_loo = loo(stan_fit)
-      best_wts_ind = NA
-      good_inds_to_test = NA
-      lmes_goodinds = NA
-      lps_badinds = NA
-      lmes_badinds = NA
+      stan_fit_stripped = cleanObject(stan_fit, c('inv_temp', 'weights', 'lp__'))
     } else {
       if (length(wts_combinations_list) > 18) {
         untemped_lpdfs = sapply(wts_combinations_list, function(x) compute_lpdf(1, x, option_diffs, choices))
@@ -226,38 +245,40 @@ fitSubj = function(stan_model_obj, option_diffs, choices, binary_atts, binary_wt
       utilities_num_untemped = utilities_untemped
       utilities_num_untemped[choices == 0] = 0
       stan_fit <- sampling(stan_model_obj,
-                                     data = list(numChoices = numTrials,
-                                                 utilities_untemped = utilities_untemped,
-                                                 utilities_num_untemped = utilities_num_untemped),
-                                     iter = numIter,
-                                     chains = numChains,
-                                     seed = stan.seed,
-                                     refresh = 0)
-      stan_samples = extract(stan_fit, pars = c('inv_temp', 'lp__'))
+                           data = list(numChoices = numTrials,
+                                       utilities_untemped = utilities_untemped,
+                                       utilities_num_untemped = utilities_num_untemped),
+                           iter = numIter,
+                           chains = numChains,
+                           seed = stan.seed,
+                           refresh = 0,
+                           save_warmup = F)
       stan_diagnostics = get_all_diagnostics(stan_fit)
       stan_loo = loo(stan_fit)
+      stan_fit_stripped = cleanObject(stan_fit, c('inv_temp', 'lp__'))
     }
     
-    # for space... too big to store
-    #stan_fit@sim$samples = NULL
-    
-    stan_results = list(best_params, lme)#, stan_fit, stan_samples, stan_diagnostics, stan_loo, best_wts_ind, good_inds_to_test, lmes_goodinds, lmes_badinds, lps_badinds)
+    if (full_output) {
+      stan_results = list(best_params, lme, stan_fit_stripped, stan_diagnostics, stan_loo)
+    } else {
+      stan_results = list(best_params, lme)
+    }
   } else {
-    stan_results = list(NULL, NULL)#, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL)
+    stan_results = NULL
   }
   
   return(stan_results)
 }
 
-fitAllModels = function(option_diffs, choices) {
+fitAllModels = function(option_diffs, choices, full_output = FALSE) {
   fitting_results = vector('list', 6)
   
-  fitting_results[[1]] = fitSubj(stan_model_full, option_diffs, choices, 0, 0)
-  fitting_results[[2]] <- fitSubj(stan_model_full, option_diffs, choices, 1, 0)
-  fitting_results[[3]] <- fitSubj(stan_model_binwts, option_diffs, choices, 0, 1, all_combinations_binwts)
-  fitting_results[[4]] <- fitSubj(stan_model_binwts, option_diffs, choices, 1, 1, all_combinations_binwts)
-  fitting_results[[5]] <- fitSubj(stan_model_binwts, option_diffs, choices, 0, 1, all_combinations_singleatt)
-  fitting_results[[6]] <- fitSubj(stan_model_binwts, option_diffs, choices, 1, 1, all_combinations_singleatt)
+  fitting_results[[1]] = fitSubj(stan_model_full, option_diffs, choices, 0, 0, full_output = full_output)
+  fitting_results[[2]] <- fitSubj(stan_model_full, option_diffs, choices, 1, 0, full_output = full_output)
+  fitting_results[[3]] <- fitSubj(stan_model_binwts, option_diffs, choices, 0, 1, wts_combinations_list = all_combinations_binwts, full_output = full_output)
+  fitting_results[[4]] <- fitSubj(stan_model_binwts, option_diffs, choices, 1, 1, wts_combinations_list = all_combinations_binwts, full_output = full_output)
+  fitting_results[[5]] <- fitSubj(stan_model_binwts, option_diffs, choices, 0, 1, wts_combinations_list = all_combinations_singleatt, full_output = full_output)
+  fitting_results[[6]] <- fitSubj(stan_model_binwts, option_diffs, choices, 1, 1, wts_combinations_list = all_combinations_singleatt, full_output = full_output)
   gc()
   return(fitting_results)
 }

@@ -4,7 +4,7 @@ if (!require('pacman')) {
   require('pacman')
 }
 
-p_load(this.path, parallel, matrixStats)
+p_load(this.path, parallel)
 
 numAtts = 9
 numTrials = 100
@@ -15,7 +15,7 @@ load(paste0(here(),'/option_diffs.rdata')) # get right filepath for this
 numSubj = 1000
 numCores = 32
 
-models_to_simulate = 2:6
+models_to_simulate = 1:6
 
 stan_model_full <- stan_model(paste0(here(),"/stan-program.stan"))
 stan_model_binwts <- stan_model(paste0(here(),"/stan-program-binwts.stan"))
