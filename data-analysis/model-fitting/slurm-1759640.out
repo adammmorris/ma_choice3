@@ -1,0 +1,2 @@
+Loading required package: pacman
+slurmstepd: error: *** JOB 1759640 ON adroit-15 CANCELLED AT 2023-05-01T12:58:07 DUE TO TIME LIMIT ***

@@ -1,0 +1,5 @@
+Loading required package: pacman
+Error in df.s1 %>% filter(subject == subjlist[subj]) %>% select(all_of(atts.opt.scaled.diff)) : 
+  could not find function "%>%"
+Calls: t -> as.matrix
+Execution halted
