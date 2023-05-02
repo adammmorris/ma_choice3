@@ -52,13 +52,12 @@ fitting_results = mclapply(
 )
 
 # Split so that each saved data file is <100mb
-fitting_results_split = split(fitting_results, ceiling(seq_along(fitting_results) / 20))
+fitting_results_split = split(fitting_results, ceiling(seq_along(fitting_results) / 5))
 
 for (i in 1:length(fitting_results_split)) {
   fitting_results_split_cur = fitting_results_split[[i]]
-  save(numAtts, option_diffs_touse, choices_touse, filepath,
-       stan.seed, numChains, numIter,
-       generateChoices, fitSubj,
+  save(numAtts, #option_diffs_touse, choices_touse, filepath,
+       stan.seed, numChains, numIter, fitSubj,
        fitting_results_split_cur,
        file = paste0(filepath, 'modeling-output/modeling_output_', i, '.rdata'))
 }
